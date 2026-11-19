@@ -1,0 +1,132 @@
+BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
+======================================================
+
+ARCHIVOS
+--------
+index.html             Aplicación lista para GitHub Pages.
+BulletCoffeShop.html   Copia con el mismo código, útil para preparar/exportar
+                       el respaldo desde el archivo local.
+firebase-config.js     Aquí se pega la configuración pública de tu app Firebase.
+firestore.rules        Reglas de seguridad que debes publicar en Firebase.
+
+IMPORTANTE ANTES DE EMPEZAR
+---------------------------
+GitHub Pages publica la aplicación, pero no copia el localStorage del archivo
+que ya usabas en tu computador. Por eso, primero debes generar un respaldo JSON.
+No borres tu archivo original ni sus datos hasta comprobar que todo se migró.
+
+PASO 1 — RESPALDAR LOS DATOS DEL ARCHIVO ACTUAL
+-----------------------------------------------
+1. Descarga BulletCoffeShop.html de este paquete.
+2. Para que el navegador encuentre el almacenamiento local anterior, coloca
+   temporalmente esta versión en la MISMA ruta y con el MISMO nombre del archivo
+   local que venías abriendo (conserva antes una copia del archivo original).
+3. Abre ese archivo local. La aplicación conserva la clave local cafe_pos_v1.
+4. Pulsa “Respaldo JSON”. Se descargará un archivo cuyo nombre empieza por
+   respaldo_bullet_coffee_. Guarda ese JSON en un lugar seguro.
+5. No continúes sin comprobar que el archivo JSON se descargó.
+
+Si al abrir la versión actualizada no aparecen tus datos antiguos, NO exportes
+un respaldo vacío. Conserva el archivo original y avisa antes de continuar.
+
+PASO 2 — CREAR FIREBASE
+-----------------------
+1. Entra en https://console.firebase.google.com/ y crea un proyecto.
+2. En el proyecto, agrega una aplicación Web (icono </>).
+3. Copia la configuración del SDK para la Web.
+4. Abre firebase-config.js y reemplaza TODOS los valores PEGA_AQUI_... por los
+   valores reales entregados por Firebase. No cambies las comillas.
+5. En Authentication > Sign-in method, activa “Anonymous”. No aparecerá una
+   pantalla de inicio de sesión en el POS.
+6. En Firestore Database, crea una base de datos en modo Native.
+7. En Firestore > Rules, pega el contenido de firestore.rules y publica las reglas.
+
+No uses reglas públicas de prueba. La configuración del SDK web (apiKey,
+projectId, appId, etc.) está diseñada para estar en el frontend; la protección
+real de los datos la aplican las reglas de Firestore y la autorización de cada
+UID de dispositivo. Nunca publiques claves privadas ni archivos de cuenta de
+servicio.
+
+PASO 3 — SUBIR A GITHUB PAGES
+-----------------------------
+1. Crea un repositorio en GitHub, por ejemplo: bullet-coffee-pos.
+2. Sube a la raíz del repositorio estos archivos:
+      index.html
+      firebase-config.js
+   (Puedes guardar LEEME_Integracion.txt y firestore.rules como referencia,
+   aunque las reglas se publican desde la consola Firebase, no desde Pages.)
+3. En GitHub abre Settings > Pages.
+4. En “Build and deployment”, selecciona “Deploy from a branch”.
+5. Selecciona la rama main y la carpeta /(root). Guarda.
+6. Espera a que GitHub Pages publique la web. La dirección será similar a:
+      https://TU_USUARIO.github.io/bullet-coffee-pos/
+
+PASO 4 — MIGRAR EL RESPALDO Y AUTORIZAR EL PRIMER DISPOSITIVO
+------------------------------------------------------------
+Hazlo primero en el computador que contiene el respaldo original:
+1. Abre la URL de GitHub Pages.
+2. En la parte superior aparecerá “Pendiente: ...” con el UID anónimo de ese
+   dispositivo. Copia ese UID.
+3. En Firebase > Firestore > Data, crea esta estructura:
+      cafeterias
+        bullet-coffee
+          devices
+            UID_DEL_DISPOSITIVO
+              active: true   (tipo booleano, no texto)
+   Puedes crear los documentos/colecciones haciendo clic en “Start collection”
+   y “Add document”. El ID del documento debe ser exactamente el UID mostrado.
+4. Recarga la página. El dispositivo quedará autorizado.
+5. Pulsa “Restaurar JSON” y selecciona el respaldo del paso 1.
+6. Espera a que el estado superior diga “Sincronización activa”. No abras todavía
+   el POS en los otros dispositivos hasta que termine esta primera migración.
+
+La aplicación no sube el catálogo predeterminado vacío como si fueran tus datos:
+si la base remota está vacía y no se ha restaurado el respaldo, espera.
+Las ventas se identifican con un ID estable para evitar duplicados al reintentar.
+
+PASO 5 — AUTORIZAR LOS OTROS DOS DISPOSITIVOS
+---------------------------------------------
+1. Abre la misma URL en el segundo dispositivo.
+2. Copia el UID que aparece como “Pendiente: ...”.
+3. En Firestore crea otro documento en:
+      cafeterias / bullet-coffee / devices / UID_DEL_SEGUNDO
+   con el campo active = true (booleano).
+4. Recarga la aplicación. Debe descargar el catálogo y el historial compartidos.
+5. Repite el proceso en el tercer dispositivo.
+
+Para añadir más dispositivos en el futuro, repite el mismo procedimiento.
+Si borras los datos del navegador, cambias de perfil o reinstalas el navegador,
+puede generarse un UID nuevo y tendrás que autorizar ese nuevo dispositivo.
+
+CÓMO FUNCIONA
+-------------
+- Cada venta se guarda primero en el almacenamiento local.
+- Firebase sincroniza ventas y productos al recuperar la conexión.
+- Firestore mantiene una caché local persistente para trabajar sin conexión en
+  navegadores compatibles (Chrome, Safari y Firefox).
+- Cada venta usa un identificador estable para que los reintentos no dupliquen
+  la transacción.
+- El catálogo compartido se actualiza entre dispositivos en tiempo real.
+- El historial local y remoto se combina por ID de venta.
+- La exportación Excel existente se conserva. El respaldo JSON adicional permite
+  migrar y restaurar el historial completo, no solo una hoja resumida.
+
+LIMITACIONES Y RECOMENDACIONES
+------------------------------
+- No existe sincronización instantánea mientras un dispositivo está desconectado;
+  sus cambios se envían al recuperar internet.
+- Si dos dispositivos editan el mismo producto sin conexión, al sincronizar puede
+  prevalecer la última escritura. Evita editar simultáneamente el mismo producto.
+- No borres los respaldos Excel/JSON. La sincronización reduce el riesgo de pérdida,
+  pero no reemplaza una copia de seguridad periódica.
+- Los datos de Firestore se cobran según el plan y el uso. Revisa la cuota y los
+  precios vigentes de Firebase antes de operar a gran escala.
+- Para que el modo sin conexión funcione, abre la aplicación al menos una vez con
+  internet en cada dispositivo y usa Chrome/Safari/Firefox actualizado.
+
+SITIOS OFICIALES
+----------------
+Firebase Console: https://console.firebase.google.com/
+Firebase offline: https://firebase.google.com/docs/firestore/manage-data/enable-offline?hl=es-419
+Firebase Auth anónimo: https://firebase.google.com/docs/auth/web/anonymous-auth
+GitHub Pages: https://docs.github.com/en/pages/getting-started-with-github-pages
