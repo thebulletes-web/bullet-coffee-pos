@@ -8,9 +8,15 @@ service cloud.firestore {
     }
 
     match /cafeterias/{cafeId}/devices/{deviceId} {
-      // Cada dispositivo solo puede consultar su propio documento de autorización.
       allow get: if request.auth != null && request.auth.uid == deviceId;
-      allow list, create, update, delete: if false;
+      allow list: if approvedDevice(cafeId);
+      // Un equipo nuevo puede pedir acceso (siempre inactivo); un equipo
+      // aprobado puede registrar/autorizar otros.
+      allow create: if approvedDevice(cafeId)
+        || (request.auth != null && request.auth.uid == deviceId
+            && request.resource.data.active == false
+            && request.resource.data.keys().hasOnly(['active','requestedAt','ua']));
+      allow update, delete: if approvedDevice(cafeId);
     }
 
     match /cafeterias/{cafeId}/products/{productId} {
@@ -18,6 +24,10 @@ service cloud.firestore {
     }
 
     match /cafeterias/{cafeId}/sales/{saleId} {
+      allow read, write: if approvedDevice(cafeId);
+    }
+
+    match /cafeterias/{cafeId}/mesas/{mesaId} {
       allow read, write: if approvedDevice(cafeId);
     }
   }
