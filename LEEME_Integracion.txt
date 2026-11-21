@@ -1,6 +1,45 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.2.0 (PIN por persona y bloqueo por inactividad)
+--------------------------------------------------------
+Cambian index.html, sw.js y firestore.rules (agrega la colección «staff»).
+
+ORDEN OBLIGATORIO
+1. Publica firestore.rules (2.2.0) en Firebase. Sin estas reglas los PIN no
+   se comparten entre equipos.
+2. Sube index.html, sw.js, firestore.rules y este LEEME.
+3. Abre primero el PC Main: al sincronizar pedirá «Configura tu PIN». Crea
+   el PIN de la persona que administra (queda como «Administración»).
+4. Después cada equipo de mesero: al sincronizar pide «Crear mi PIN» (el
+   mesero se registra) o «Ya tengo PIN» (si el PC Main ya lo creó).
+
+Cómo funciona
+- Cada persona tiene su propio PIN de 4 a 6 dígitos. Se guarda cifrado
+  (nadie puede verlo) en Firebase y en cada equipo, para poder desbloquear
+  sin internet.
+- La app se bloquea al abrirla y después de 2 minutos sin actividad
+  (configurable: 1, 2, 5, 10 minutos o sin bloqueo, en Ajustes > Seguridad y
+  operación). Para seguir: tocar tu nombre y escribir tu PIN. La venta o mesa
+  en curso queda intacta.
+- PC Main y segundo Main: solo desbloquea el personal de «Administración»,
+  o la contraseña administrativa como respaldo.
+- Si un equipo tiene un turno abierto, solo su dueño o un administrador
+  puede desbloquearlo.
+- Iniciar turno exige elegir la persona y su PIN. El nombre de quien atiende
+  ya no se escribe a mano: lo pone el PIN.
+- 5 PIN incorrectos: espera de 1 minuto y queda en la auditoría.
+- Ajustes > Personal y PIN (solo PC Main): agregar personas (mesero o
+  administración), restablecer PIN y desactivar. Siempre queda al menos una
+  persona de administración activa.
+- Auditoría: persona registrada, PIN configurado en un equipo, PIN
+  restablecido, persona activada/desactivada, intentos fallidos, desbloqueo
+  con contraseña administrativa y cambio de persona que atiende.
+- El reinicio real de datos conserva al personal.
+- Nota: un PIN de pocos dígitos protege el uso diario del equipo, pero no
+  es tan fuerte como la contraseña administrativa. Para un equipo robado, lo
+  efectivo sigue siendo marcarlo «Perdido».
+
 VERSIÓN 2.1.1 (plazos cortos sin conexión)
 ------------------------------------------
 Solo cambian index.html y sw.js (las reglas son las mismas de 2.1.0).

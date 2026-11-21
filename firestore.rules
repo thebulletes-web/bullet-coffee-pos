@@ -1,5 +1,6 @@
 rules_version = '2';
-// Bullet POS 2.1.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.2.0 — Reglas de seguridad de Firestore.
+// 2.2.0: personal con PIN (staff).
 // 2.1.0: generación de datos (control/generation) para el reinicio real y
 // entregas a caja (cashReceipts). Ver la sección «generación de datos».
 // Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
@@ -425,6 +426,24 @@ service cloud.firestore {
             && (resource.data.status == 'open' || request.resource.data == resource.data));
       // 2.1.0: solo el reinicio real borra turnos de generaciones anteriores.
       allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
+    }
+
+    // --- 2.2.0: personal con PIN (el PIN se guarda cifrado) ---
+    // Todos los equipos autorizados lo leen (desbloquean sin internet). Un
+    // equipo secundario solo puede registrar a su propio mesero al configurarse;
+    // crear administradores, restablecer PIN o desactivar: solo un PC Main.
+    match /cafeterias/{cafeId}/staff/{staffId} {
+      allow read: if approvedDevice(cafeId);
+      allow create: if request.resource.data.id == staffId
+        && request.resource.data.pinHash is string
+        && (isMainOrBootstrap(cafeId)
+          || (approvedDevice(cafeId)
+            && request.resource.data.role == 'waiter'
+            && request.resource.data.get('active', true) == true
+            && request.resource.data.createdByDevice == request.auth.uid));
+      allow update: if (isMainOrBootstrap(cafeId) && request.resource.data.id == staffId)
+        || (approvedDevice(cafeId) && request.resource.data == resource.data);
+      allow delete: if false;
     }
 
     // --- 2.0.0: historial de reinicios globales (la época vigente está en
