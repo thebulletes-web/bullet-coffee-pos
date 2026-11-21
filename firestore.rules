@@ -1,8 +1,9 @@
 rules_version = '2';
-// Bullet POS 1.6.0 — Reglas de seguridad de Firestore.
+// Bullet POS 1.8.0 — Reglas de seguridad de Firestore.
 // Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
 // autorizados de ESE negocio (devices/{uid}.active == true) pueden usarlos.
-// El PC Main es el dispositivo cuyo UID figura en control/admin.mainDeviceId.
+// PC Main: UID incluido en control/admin.mainDeviceIds (máximo 2), o
+// control/admin.mainDeviceId en configuraciones anteriores.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -14,20 +15,41 @@ service cloud.firestore {
     function adminPath(cafeId) {
       return /databases/$(database)/documents/cafeterias/$(cafeId)/control/admin;
     }
+    function pairingPath(cafeId) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/control/mainPairing;
+    }
+    function tablePath(cafeId, id) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/mesas/$(id);
+    }
+    function salePath(cafeId, id) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/sales/$(id);
+    }
     function approvedDevice(cafeId) {
       return signedIn()
         && exists(devicePath(cafeId))
         && get(devicePath(cafeId)).data.active == true;
     }
+    function mainListOf(a) {
+      return a.get('mainDeviceIds', [a.get('mainDeviceId', '')]);
+    }
     function isMain(cafeId) {
       return approvedDevice(cafeId)
         && exists(adminPath(cafeId))
-        && get(adminPath(cafeId)).data.mainDeviceId == request.auth.uid;
+        && request.auth.uid in mainListOf(get(adminPath(cafeId)).data);
     }
     // Compatibilidad: mientras no exista un PC Main configurado, los
     // dispositivos autorizados conservan los permisos que tenían antes.
     function isMainOrBootstrap(cafeId) {
       return isMain(cafeId) || (approvedDevice(cafeId) && !exists(adminPath(cafeId)));
+    }
+
+    // --- Sumas de pagos (máximo 8 pagos por venta) ---
+    function amt(p, i) {
+      return p.size() > i ? p[i].amount : 0;
+    }
+    function paySum(p) {
+      return amt(p, 0) + amt(p, 1) + amt(p, 2) + amt(p, 3)
+        + amt(p, 4) + amt(p, 5) + amt(p, 6) + amt(p, 7);
     }
 
     // --- Dispositivos ---
@@ -39,8 +61,16 @@ service cloud.firestore {
         || (signedIn() && request.auth.uid == deviceId
             && request.resource.data.active == false
             && request.resource.data.keys().hasOnly(['active', 'requestedAt', 'ua']));
-      // Autorizar, revocar y nombrar dispositivos: solo el PC Main.
-      allow update, delete: if isMainOrBootstrap(cafeId);
+      // Autorizar, revocar y nombrar: PC Main. Un equipo solo puede marcarse
+      // como "main" en la misma operación en que una vinculación válida lo
+      // agregó a la lista de Main (ver control/mainPairing).
+      allow update: if isMainOrBootstrap(cafeId)
+        || (signedIn() && request.auth.uid == deviceId
+            && resource.data.active == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'mainSince'])
+            && request.resource.data.role == 'main'
+            && request.auth.uid in getAfter(adminPath(cafeId)).data.get('mainDeviceIds', []));
+      allow delete: if isMainOrBootstrap(cafeId);
     }
 
     // --- Catálogo: todos lo leen, solo el PC Main lo modifica ---
@@ -51,14 +81,23 @@ service cloud.firestore {
 
     // --- Ventas ---
     match /cafeterias/{cafeId}/sales/{saleId} {
-      allow read: if approvedDevice(cafeId);
-      // Cada dispositivo registra sus propias ventas; el PC Main también puede
-      // subir ventas de migración/restauración.
+      // 1.8.0: el PC Main lee el historial global; un dispositivo secundario
+      // solo sus propias ventas (las consultas deben filtrar por deviceId).
+      allow read: if isMainOrBootstrap(cafeId)
+        || (approvedDevice(cafeId) && resource.data.deviceId == request.auth.uid);
+      // Cada dispositivo registra sus propias ventas, nunca anuladas. Si la
+      // venta cobra una mesa, su ID es el paymentOperationId (idempotencia) y
+      // la suma de los pagos debe cubrir el total.
       allow create: if isMainOrBootstrap(cafeId)
         || (approvedDevice(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.total is number
-            && request.resource.data.items is list);
+            && request.resource.data.items is list
+            && request.resource.data.get('voided', false) == false
+            && (request.resource.data.get('table', null) == null
+                || (request.resource.data.get('paymentOperationId', '') == saleId
+                    && request.resource.data.get('payments', []).size() <= 8
+                    && paySum(request.resource.data.get('payments', [])) >= request.resource.data.total)));
       // Anular, corregir el pago o archivar: solo el PC Main. El dueño de la
       // venta solo puede reenviarla sin cambios (reintento idempotente).
       allow update: if isMainOrBootstrap(cafeId)
@@ -69,32 +108,169 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // --- Mesas: operación compartida entre dispositivos autorizados ---
+    // --- Mesas: máquina de estados del cobro ---
+    // Toda escritura incrementa "rev" en 1 (evita sobrescrituras en silencio
+    // entre dispositivos). Un dispositivo que no es Main:
+    //   - puede abrir mesas libres y corregir productos ANTES de iniciar el cobro,
+    //     sin dejar vacía una mesa que ya tuvo consumo;
+    //   - una vez iniciado el cobro no puede cambiar productos ni subtotal;
+    //   - solo libera la mesa con una venta del servidor que cubra la cuenta,
+    //     moviéndola a otra mesa en la misma operación, o si nunca tuvo consumo.
+    function hadItemsOf(d) {
+      return d.get('hadItems', false) == true || d.get('items', []).size() > 0;
+    }
+    function lockedOf(d) {
+      return d.get('checkout', null) != null;
+    }
+    function sameItems(a, b) {
+      return a.get('items', []) == b.get('items', []);
+    }
+    function waiterOpenEdit(b, a) {
+      return a.get('open', false) == true
+        && a.get('partials', []).hasAll(b.get('partials', []))
+        && (
+          // abrir una mesa libre
+          (b.get('open', false) == false
+            && a.get('checkout', null) == null
+            && a.get('partials', []).size() == 0)
+          // corregir antes de iniciar el cobro
+          || (b.get('open', false) == true && !lockedOf(b)
+            && a.get('checkout', null) == null
+            && a.get('partials', []).size() == b.get('partials', []).size()
+            && (!hadItemsOf(b)
+                || (a.get('items', []).size() > 0 && a.get('hadItems', false) == true)))
+          // iniciar el cobro: la cuenta queda congelada
+          || (b.get('open', false) == true && !lockedOf(b)
+            && a.get('checkout', null) != null
+            && a.checkout.state == 'iniciado'
+            && a.checkout.opId is string
+            && a.checkout.subtotal is number
+            && sameItems(a, b)
+            && a.get('items', []).size() > 0
+            && a.get('partials', []).size() == b.get('partials', []).size())
+          // cobro en curso: estado, propina y abonos; nunca productos
+          || (b.get('open', false) == true && lockedOf(b)
+            && a.get('checkout', null) != null
+            && a.checkout.opId == b.checkout.opId
+            && a.checkout.subtotal == b.checkout.subtotal
+            && a.checkout.state in ['iniciado', 'pendiente', 'fallido']
+            && sameItems(a, b)
+            && a.get('partials', []).size() <= 6)
+          // cancelar el cobro sin abonos: la mesa sigue ocupada e intacta
+          || (b.get('open', false) == true && lockedOf(b)
+            && a.get('checkout', null) == null
+            && sameItems(a, b)
+            && b.get('partials', []).size() == 0
+            && a.get('partials', []).size() == 0)
+        );
+    }
+    function saleCovers(cafeId, b) {
+      let s = get(salePath(cafeId, b.checkout.opId)).data;
+      return s.get('table', -1) == b.n
+        && s.get('voided', false) == false
+        && s.get('paymentOperationId', '') == b.checkout.opId
+        && s.subtotal == b.checkout.subtotal
+        && s.get('payments', []).size() <= 8
+        && paySum(s.get('payments', [])) >= s.total;
+    }
+    function movedOk(cafeId, b, a) {
+      let d = getAfter(tablePath(cafeId, 'mesa-' + string(a.movedTo))).data;
+      return d.get('open', false) == true
+        && d.get('items', []) == b.get('items', [])
+        && d.get('movedFrom', null) == b.n
+        && d.get('checkout', null) == null;
+    }
+    function waiterRelease(cafeId, b, a) {
+      return b.get('open', false) == true
+        && a.get('open', false) == false
+        && a.get('items', []).size() == 0
+        && a.get('checkout', null) == null
+        && a.get('partials', []).size() == 0
+        && (
+          // cobro válido ya registrado en el servidor
+          (lockedOf(b)
+            && a.get('releasedBySale', '') == b.checkout.opId
+            && saleCovers(cafeId, b))
+          // mesa abierta por error que nunca tuvo consumo
+          || (!lockedOf(b) && !hadItemsOf(b) && b.get('partials', []).size() == 0)
+          // la cuenta pasa completa a otra mesa en la misma operación
+          || (!lockedOf(b)
+            && b.get('partials', []).size() == 0
+            && a.get('movedTo', null) is int
+            && movedOk(cafeId, b, a))
+        );
+    }
     match /cafeterias/{cafeId}/mesas/{mesaId} {
-      allow read, create, update: if approvedDevice(cafeId);
-      allow delete: if isMainOrBootstrap(cafeId);
+      allow read: if approvedDevice(cafeId);
+      allow create: if approvedDevice(cafeId)
+        && request.resource.data.rev == 1
+        && mesaId == 'mesa-' + string(request.resource.data.n);
+      allow update: if approvedDevice(cafeId)
+        && request.resource.data.rev == resource.data.get('rev', 0) + 1
+        && request.resource.data.get('n', -1) == resource.data.get('n', request.resource.data.get('n', -1))
+        && (isMain(cafeId)
+            || waiterOpenEdit(resource.data, request.resource.data)
+            || waiterRelease(cafeId, resource.data, request.resource.data)
+            // mesa libre que sigue libre y sin productos
+            || (resource.data.get('open', false) == false
+                && request.resource.data.get('open', false) == false
+                && request.resource.data.get('items', []).size() == 0
+                && request.resource.data.get('checkout', null) == null));
+      allow delete: if isMain(cafeId);
     }
 
-    // --- Control: admin (solo el PC Main lo lee), caja y datos del negocio ---
+    // --- Control: admin, vinculación del segundo Main, caja y negocio ---
+    function adminListOk() {
+      let l = mainListOf(request.resource.data);
+      return l.size() >= 1 && l.size() <= 2
+        && request.auth.uid in l
+        && request.resource.data.get('mainDeviceId', '') in l;
+    }
+    // Un dispositivo autorizado se agrega como segundo Main solo con el código
+    // vigente de un solo uso generado por un PC Main (en la misma operación).
+    function claimSecondMain(cafeId) {
+      let p = get(pairingPath(cafeId)).data;
+      let pa = getAfter(pairingPath(cafeId)).data;
+      return p.used == false
+        && p.expiresAt > request.time
+        && pa.used == true
+        && pa.usedBy == request.auth.uid
+        && pa.claimCode == p.code
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mainDeviceIds', 'updatedAt'])
+        && request.resource.data.mainDeviceIds == mainListOf(resource.data).concat([request.auth.uid])
+        && request.resource.data.mainDeviceIds.size() <= 2;
+    }
+    function claimPairing(cafeId) {
+      return resource.data.used == false
+        && resource.data.expiresAt > request.time
+        && request.resource.data.claimCode == resource.data.code
+        && request.resource.data.usedBy == request.auth.uid
+        && request.resource.data.used == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedBy', 'usedAt', 'claimCode'])
+        && request.auth.uid in getAfter(adminPath(cafeId)).data.get('mainDeviceIds', []);
+    }
     match /cafeterias/{cafeId}/control/{docId} {
       allow get: if approvedDevice(cafeId)
-        && (docId != 'admin' || resource == null
-            || resource.data.mainDeviceId == request.auth.uid);
+        && ((docId == 'admin'
+              && (resource == null || request.auth.uid in mainListOf(resource.data)))
+            || (docId == 'mainPairing' && isMain(cafeId))
+            || (docId != 'admin' && docId != 'mainPairing'));
       allow list: if false;
-      // Configurar el PC Main: solo si aún no existe y para sí mismo.
+      // Configurar el primer PC Main: solo si aún no existe y para sí mismo.
       allow create: if approvedDevice(cafeId)
         && ((docId == 'admin'
              && !exists(adminPath(cafeId))
-             && request.resource.data.mainDeviceId == request.auth.uid)
+             && request.resource.data.mainDeviceId == request.auth.uid
+             && mainListOf(request.resource.data) == [request.auth.uid])
             || (docId != 'admin' && isMain(cafeId)));
-      // El PC Main no puede transferirse desde la app (solo desde la consola).
-      allow update: if isMain(cafeId)
-        && (docId != 'admin'
-            || request.resource.data.mainDeviceId == resource.data.mainDeviceId);
+      allow update: if approvedDevice(cafeId)
+        && ((isMain(cafeId) && (docId != 'admin' || adminListOk()))
+            || (docId == 'admin' && !isMain(cafeId) && claimSecondMain(cafeId))
+            || (docId == 'mainPairing' && !isMain(cafeId) && claimPairing(cafeId)));
       allow delete: if false;
     }
 
-    // --- Caja compartida: todos la leen, solo el PC Main la administra ---
+    // --- Caja compartida: todos la leen, solo un PC Main la administra ---
     match /cafeterias/{cafeId}/cashSessions/{sessionId} {
       allow read: if approvedDevice(cafeId);
       allow create, update: if isMain(cafeId);
@@ -106,7 +282,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // --- Reporte de estado de cada dispositivo (supervisión del PC Main) ---
+    // --- Reporte de estado de cada dispositivo (supervisión de los Main) ---
     match /cafeterias/{cafeId}/deviceStatus/{deviceId} {
       allow read: if isMainOrBootstrap(cafeId);
       allow create, update: if approvedDevice(cafeId)
@@ -115,7 +291,7 @@ service cloud.firestore {
       allow delete: if isMainOrBootstrap(cafeId);
     }
 
-    // --- Auditoría: solo se agregan registros; nunca se editan ni borran ---
+    // --- Auditoría: solo se agregan registros; cualquier Main la consulta ---
     match /cafeterias/{cafeId}/audit/{entryId} {
       allow read: if isMain(cafeId);
       allow create: if approvedDevice(cafeId)

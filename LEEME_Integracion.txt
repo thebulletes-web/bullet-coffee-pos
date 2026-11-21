@@ -1,6 +1,80 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+ACTUALIZAR A LA VERSIÓN 1.8.0 (permisos de datos e historial por dispositivo)
+---------------------------------------------------------------------------
+Incluye todo lo de 1.7.0 y 1.6.0. Mismo orden: respaldo JSON, publicar
+firestore.rules (1.8.0), subir index.html, sw.js, firestore.rules y este
+LEEME, y actualizar todos los dispositivos.
+
+Qué cambia:
+- Dispositivos secundarios (meseros): ya no ven la pestaña Ajustes ni los
+  botones de Excel/JSON (importar, exportar, respaldo, restaurar, archivar).
+  Las funciones también están bloqueadas en la lógica, y las reglas de
+  Firestore solo les entregan las ventas de su propio dispositivo.
+- «Mi historial de ventas»: cada mesero ve solo lo registrado en su equipo.
+- PC Main: historial global con filtros por dispositivo, mesero, mesa, método
+  de pago, estado y fechas; cada venta muestra dispositivo, quién atendió,
+  mesa, caja, estado del pago y estado de sincronización. Arriba se listan las
+  cuentas abiertas (en curso, pendiente de cobro, pago por confirmar).
+- Ventas antiguas sin esos datos muestran «No disponible» (no se inventa nada).
+- Excel: nueva hoja «Ventas por dispositivo» (una fila por producto). Propina
+  y Total de la venta van solo en la primera fila de cada venta para que las
+  sumas en tablas dinámicas no se dupliquen. La hoja también se incluye en los
+  archivos del archivado mensual. «Descuento» figura como «No aplica» porque
+  el POS no maneja descuentos.
+- «Persona que atiende en este dispositivo» se movió a la pestaña Historial.
+- «Vincular como segundo Main» ahora está en el panel de sincronización
+  (indicador del encabezado), porque los secundarios no abren Ajustes.
+- Corregido: la caja abierta en un PC Main podía perderse localmente al
+  procesarse cambios de caja fuera de orden; sus ventas quedaban sin caja.
+
+ACTUALIZAR A LA VERSIÓN 1.7.0 (cobro seguro de mesas + segundo Main)
+-------------------------------------------------------------------
+Incluye todo lo de 1.6.0 (ver sección siguiente). Mismo orden obligatorio:
+1. Respaldo JSON en el PC Main.
+2. Publica firestore.rules (1.7.0) en Firebase Console > Firestore > Rules.
+3. Sube index.html, sw.js, firestore.rules y LEEME_Integracion.txt.
+4. Actualiza TODOS los dispositivos (ábrelos con internet y recarga). Las
+   reglas 1.7.0 exigen que cada cambio de mesa incremente su versión; un
+   equipo que siga con la versión anterior no podrá guardar cambios de mesas.
+5. Cierra o cobra las mesas abiertas antes de actualizar, si es posible.
+
+Cómo funciona el cobro de mesas:
+- «Cobrar mesa» INICIA el cobro: la cuenta queda bloqueada (no se pueden
+  cambiar productos) y se genera un número de operación único.
+- Se elige el medio de pago y se pulsa «Confirmar pago». En efectivo hay que
+  escribir lo recibido (o tocar «Exacto»). Se pide confirmación final.
+- «Cancelar cobro» devuelve la mesa a ocupada, intacta.
+- «Abono parcial» registra un pago parcial; la mesa NO se libera mientras haya
+  saldo. Con abonos, solo un PC Main puede cancelar el cobro.
+- Tras confirmar, la mesa queda «Pago registrado · confirmando» y se libera
+  sola cuando Firebase confirma la venta. Sin internet sigue ocupada.
+- Repetir la confirmación nunca duplica la venta (el número de operación es
+  el ID de la venta).
+- Meseros: pueden abrir mesas y corregir productos ANTES de iniciar el cobro
+  (queda en auditoría), pero no pueden liberar ni vaciar mesas.
+- PC Main: «Anular cuenta» libera una mesa sin cobro pidiendo contraseña y
+  motivo; queda como venta ANULADA y en auditoría.
+- Si dos equipos cambian la misma mesa sin conexión, no se pisan: se conserva
+  la versión del servidor y aparece un aviso en Mesas para aplicar o descartar
+  los cambios propios.
+
+Segundo PC Main:
+1. Autoriza el otro equipo como dispositivo normal (Ajustes > Dispositivos).
+2. En el PC Main: Ajustes > Administración principal > «Autorizar segundo
+   Main». Pide la contraseña y muestra un código de 8 caracteres que vence en
+   10 minutos y sirve una sola vez.
+3. En el otro equipo: Ajustes > Administración principal > «Vincular como
+   segundo Main» y escribe el código.
+Ambos Main tienen los mismos permisos y la misma contraseña administrativa.
+Cualquiera puede revocar al otro desde la lista de Main (no a sí mismo).
+Máximo 2 Main.
+
+Persona que atiende: en Ajustes cada dispositivo puede indicar el nombre de
+quien lo usa; se guarda en ventas, cobros y auditoría. La auditoría se
+consulta desde cualquier PC Main con «Ver auditoría».
+
 ACTUALIZAR A LA VERSIÓN 1.6.0 (IndexedDB + cola de sincronización)
 ------------------------------------------------------------------
 ORDEN OBLIGATORIO. Las reglas deben publicarse ANTES que la app: con las reglas
