@@ -919,6 +919,68 @@
         color: var(--muted);
         margin-top: 4px;
       }
+      /* 1.7.0: estados del cobro de mesas */
+      .tcard.paying {
+        border-color: #9cc3e8;
+        background: #eef5fc;
+      }
+      .tcard.paying .tstate {
+        color: #1f5f99;
+      }
+      .tcard.pendingpay {
+        border-color: #c8b3e6;
+        background: #f5f0fc;
+      }
+      .tcard.pendingpay .tstate {
+        color: #5d3a91;
+      }
+      .tcard.failed {
+        border-color: #eab0aa;
+        background: #fdf0ee;
+      }
+      .tcard.failed .tstate {
+        color: var(--red);
+      }
+      .panel {
+        overflow-y: auto;
+      }
+      .cart-list {
+        min-height: 96px;
+      }
+      .checkout-bar {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: #eef5fc;
+        color: #1f5f99;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .checkout-bar.pendingpay {
+        background: #f5f0fc;
+        color: #5d3a91;
+      }
+      .checkout-bar.failed {
+        background: #fdf0ee;
+        color: var(--red);
+      }
+      .checkout-bar .ctx-actions {
+        margin-top: 6px;
+        flex-wrap: wrap;
+      }
+      .qty button:disabled,
+      .qty input:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .audit-row {
+        border-top: 1px solid var(--line);
+        padding: 8px 0;
+        font-size: 12px;
+      }
+      .audit-row strong {
+        font-size: 13px;
+      }
       /* 1.6.0: indicador y panel de sincronización */
       .sync-chip {
         display: inline-flex;
@@ -1149,7 +1211,9 @@
             </div>
           </div>
           <div class="tlegend">
-            <span>🟢 Libre</span><span>🟠 Ocupada</span>
+            <span>🟢 Libre</span><span>🟠 Ocupada</span><span>🔵 En cobro</span
+            ><span>🟣 Pago registrado · confirmando</span
+            ><span>🔴 Cobro fallido</span>
           </div>
           <div id="tablesSyncNote" class="warnnote" style="display: none"></div>
           <div id="tablesGrid" class="tables"></div>
@@ -1371,6 +1435,31 @@
                 Cambiar contraseña
               </button>
             </div>
+            <div id="mainList" style="margin-top: 10px"></div>
+            <div class="actions" style="margin-top: 10px">
+              <button
+                class="btn primary"
+                id="secondMainBtn"
+                onclick="authorizeSecondMain()"
+                style="display: none"
+              >
+                Autorizar segundo Main</button
+              ><button
+                class="btn"
+                id="claimSecondMainBtn"
+                onclick="claimSecondMain()"
+                style="display: none"
+              >
+                Vincular como segundo Main</button
+              ><button
+                class="btn"
+                id="auditBtn"
+                onclick="openAuditLog()"
+                style="display: none"
+              >
+                Ver auditoría
+              </button>
+            </div>
             <p class="notice">
               El PC Main administra dispositivos, caja, productos y correcciones
               de ventas. Los demás equipos quedan como dispositivos de
@@ -1418,6 +1507,20 @@
               permiten, el equipo nuevo aparecerá solo en la lista como
               Pendiente.
             </p>
+          </div>
+          <div class="set-card">
+            <h3>Persona que atiende en este dispositivo</h3>
+            <div class="sub">
+              Se registra en las ventas, cobros de mesa y auditoría.
+            </div>
+            <input
+              id="operatorName"
+              class="field"
+              style="margin-top: 8px"
+              maxlength="40"
+              placeholder="Ej. Laura (mesera)"
+              onchange="saveOperatorName(this.value)"
+            />
           </div>
           <div class="set-card" id="businessCard">
             <h3>Datos del negocio en el comprobante</h3>
@@ -1501,6 +1604,7 @@
             </button></span
           >
         </div>
+        <div id="checkoutBar" class="checkout-bar" style="display: none"></div>
         <div class="cart-list" id="cart">
           <div class="empty">
             Tu carrito está vacío.<br />Agrega productos del menú.
@@ -1717,6 +1821,19 @@
       </div>
     </div>
     <div id="printReceipt" style="display: none"></div>
+    <div class="modal-back" id="auditModal">
+      <div class="modal modal-wide">
+        <h2>Registro de auditoría</h2>
+        <div class="sub" id="auditInfo"></div>
+        <div id="auditRows" style="margin-top: 10px"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeAuditLog()">Cerrar</button
+          ><button class="btn primary" onclick="openAuditLog()">
+            Actualizar
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="modal-back" id="syncModal">
       <div class="modal modal-wide">
         <h2>Sincronización y almacenamiento</h2>
@@ -1885,7 +2002,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "1.6.0",
+        APP_VERSION = "1.7.0",
         APP_BUILD = "2026-11-20";
       let received = "",
         rcSale = null,
@@ -1941,6 +2058,18 @@
         let mode = ["none", "suggested", "custom"].includes(ts.mode)
           ? ts.mode
           : "none";
+        // 1.7.0: estado del cobro (checkout), abonos parciales y marcas de
+        // control. "rev" es la última versión conocida del servidor y
+        // "dirty" indica cambios locales aún no aceptados por el servidor.
+        let co =
+          t.checkout && typeof t.checkout === "object" && t.checkout.opId
+            ? JSON.parse(JSON.stringify(t.checkout))
+            : null;
+        let partials = Array.isArray(t.partials)
+          ? t.partials
+              .filter((p) => p && typeof p === "object")
+              .map((p) => JSON.parse(JSON.stringify(p)))
+          : [];
         return {
           n,
           rev: Number(t.rev) || 0,
@@ -1952,6 +2081,15 @@
             mode,
             custom: ts.custom == null ? "" : String(ts.custom),
           },
+          checkout: co,
+          partials,
+          hadItems: !!t.hadItems || items.length > 0,
+          releasedBySale: t.releasedBySale || null,
+          movedTo: t.movedTo == null ? null : Number(t.movedTo),
+          movedFrom: t.movedFrom == null ? null : Number(t.movedFrom),
+          lastReleasedAt: t.lastReleasedAt || null,
+          lastReleasedBy: t.lastReleasedBy || null,
+          dirty: !!t.dirty,
         };
       }
       function normalizeLocalData() {
@@ -2172,6 +2310,9 @@
       // IndexedDB (venta + cola de sincronización en una misma transacción).
       let saleInFlight = false;
       async function completeSale() {
+        // 1.7.0: el cobro de mesas tiene su propio flujo con estados
+        // (iniciado → pendiente → confirmado). Pulsar «Cobrar» no libera nada.
+        if (activeTable !== null) return tableCheckoutAction();
         if (!cart.length || saleInFlight) return;
         let sub = subtotal(),
           tip = tipAmount(),
@@ -2185,6 +2326,7 @@
             tip: tip,
             total: t,
             deviceId: currentDeviceId(),
+            operator: operatorName() || null,
             cashSessionId:
               cashSession && cashSession.status === "open"
                 ? cashSession.id
@@ -2271,7 +2413,7 @@
       function renderCash(keepInput) {
         let box = document.getElementById("cashBox"),
           b = document.getElementById("checkout"),
-          t = total(),
+          t = amountDue(),
           isCash = payment === "Efectivo";
         b.disabled = !cart.length;
         splitVis();
@@ -2804,12 +2946,19 @@
               syncUser.uid,
             );
             toast("Este dispositivo aún no está autorizado en Firebase");
+            // 1.7.0: la solicitud de acceso solo se crea si el documento no
+            // existe (transacción). Antes, una solicitud que llegaba tarde
+            // podía sobrescribir una autorización ya concedida.
             if (!deviceSnap.exists)
-              deviceRef
-                .set({
-                  active: false,
-                  requestedAt: Date.now(),
-                  ua: (navigator.userAgent || "").slice(0, 90),
+              syncDb
+                .runTransaction(async (tx) => {
+                  let s = await tx.get(deviceRef);
+                  if (!s.exists)
+                    tx.set(deviceRef, {
+                      active: false,
+                      requestedAt: Date.now(),
+                      ua: (navigator.userAgent || "").slice(0, 90),
+                    });
                 })
                 .catch(() => {});
             watchActivation(deviceRef);
@@ -3620,7 +3769,7 @@
         renderCash(true);
       }
       function splitNums() {
-        let t = total(),
+        let t = amountDue(),
           c = split.cash === "" ? NaN : Number(split.cash),
           ok = Number.isFinite(c) && c > 0 && c < t,
           rec = split.received === "" ? c : Number(split.received);
@@ -4619,9 +4768,22 @@
           localStorage.setItem(ADMIN_LOCAL_KEY, JSON.stringify(v));
         } catch (e) {}
       }
+      // 1.7.0: hasta dos PC Main (control/admin.mainDeviceIds) con los mismos
+      // permisos. mainDeviceId se conserva por compatibilidad.
+      function mainIds(cfg) {
+        cfg = cfg || adminConfig || localAdmin() || {};
+        let l = Array.isArray(cfg.mainDeviceIds) ? cfg.mainDeviceIds.slice() : [];
+        if (cfg.mainDeviceId && !l.includes(cfg.mainDeviceId))
+          l.unshift(cfg.mainDeviceId);
+        return l.filter((x) => x && x !== "__otro_equipo__");
+      }
       function deviceIsMain() {
-        if (syncUser && adminConfig?.mainDeviceId)
-          return adminConfig.mainDeviceId === syncUser.uid;
+        if (
+          syncUser &&
+          adminConfig &&
+          (adminConfig.mainDeviceId || Array.isArray(adminConfig.mainDeviceIds))
+        )
+          return mainIds(adminConfig).includes(syncUser.uid);
         return !!(adminConfig?.isMain || localAdmin()?.isMain);
       }
       async function deriveAdminHash(password, salt) {
@@ -4729,6 +4891,7 @@
               throw new Error("Ya existe un PC Main configurado.");
             tx.set(ref, {
               mainDeviceId: syncUser.uid,
+              mainDeviceIds: [syncUser.uid],
               passwordSalt: salt,
               passwordHash: hash,
               initialPassword: true,
@@ -4738,6 +4901,7 @@
           });
           adminConfig = {
             mainDeviceId: syncUser.uid,
+            mainDeviceIds: [syncUser.uid],
             passwordSalt: salt,
             passwordHash: hash,
             initialPassword: true,
@@ -4790,7 +4954,11 @@
         delete cfg.isMain;
         if (syncReady && deviceApproved) {
           try {
-            await adminRef().set(cfg, { merge: true });
+            // La lista de Main no se reescribe aquí (evita borrar al otro Main).
+            let remoteCfg = { ...cfg };
+            delete remoteCfg.mainDeviceIds;
+            delete remoteCfg.mainDeviceId;
+            await adminRef().set(remoteCfg, { merge: true });
           } catch (e) {
             toast(
               "No se pudo guardar en Firebase. La contraseña no se cambió.",
@@ -4810,7 +4978,7 @@
           let snap = await adminRef().get();
           if (snap.exists) {
             adminConfig = snap.data();
-            isMainDevice = adminConfig.mainDeviceId === syncUser.uid;
+            isMainDevice = mainIds(adminConfig).includes(syncUser.uid);
             // 1.6.0: se conserva la marca local de Main para arrancar sin conexión.
             saveLocalAdmin({ ...adminConfig, isMain: isMainDevice });
           } else {
@@ -5913,7 +6081,14 @@
               return rej(e);
             }
             t.oncomplete = () => res(out);
-            t.onerror = () => rej(t.error || new Error("Error de IndexedDB"));
+            // Se propaga el error real de la solicitud (p. ej. ConstraintError
+            // cuando add() encuentra un ID existente).
+            t.onerror = (e) =>
+              rej(
+                (e && e.target && e.target.error) ||
+                  t.error ||
+                  new Error("Error de IndexedDB"),
+              );
             t.onabort = () =>
               rej(t.error || new Error("Transacción de IndexedDB cancelada"));
             try {
@@ -6553,8 +6728,11 @@
             same = true;
             return null;
           });
-          if (op.kind === "sale" && same)
+          if (op.kind === "sale" && same) {
             await setSaleState(op.docId, { state: "synced", confirmedAt: now, lastError: "" });
+            // 1.7.0: si la venta cobra una mesa, ahora puede liberarse.
+            if (typeof onSaleConfirmed === "function") onSaleConfirmed(op.docId);
+          }
           if (op.kind === "cashMove") {
             let m = cashMovements.find((x) => x.id === op.docId);
             if (m) m.syncState = "synced";
@@ -6757,6 +6935,7 @@
             by: currentDeviceId(),
             deviceName: BulletSupervision.myName(),
             role: deviceIsMain() ? "main" : "secondary",
+            operator: operatorName() || null,
             appVersion: APP_VERSION,
             details: JSON.parse(JSON.stringify(details || {})),
           };
@@ -6987,7 +7166,7 @@
           if (el) el.innerHTML = tableHtml();
           if (gid("syncModal") && gid("syncModal").classList.contains("show")) renderSyncPanel();
         }
-        return { myName, touch, report, start, preCloseCheck, tableHtml, renderAll };
+        return { myName, touch, report, start, preCloseCheck, tableHtml, renderAll, rows: rowsFor };
       })());
       function startDeviceStatusListener() {
         BulletSupervision.start();
@@ -7403,6 +7582,1679 @@
         if (firebaseConfigured()) startCloudSync();
         renderSyncChip();
       }
+      // ===== Bullet POS 1.7.0: cobro seguro de mesas, idempotencia y segundo Main =====
+      // Invariante: ninguna mesa pasa a libre ni se vacía sin una venta registrada
+      // y CONFIRMADA por el servidor (o, para un PC Main, una anulación auditada).
+      const OPERATOR_KEY = "bullet_operator_name";
+      function operatorName() {
+        try {
+          return localStorage.getItem(OPERATOR_KEY) || "";
+        } catch (e) {
+          return "";
+        }
+      }
+      function saveOperatorName(v) {
+        try {
+          localStorage.setItem(OPERATOR_KEY, String(v || "").trim().slice(0, 40));
+        } catch (e) {}
+        toast("Nombre guardado para este dispositivo");
+      }
+      function stableStr(v) {
+        if (Array.isArray(v)) return "[" + v.map(stableStr).join(",") + "]";
+        if (v && typeof v === "object")
+          return (
+            "{" +
+            Object.keys(v)
+              .filter((k) => v[k] !== undefined)
+              .sort()
+              .map((k) => JSON.stringify(k) + ":" + stableStr(v[k]))
+              .join(",") +
+            "}"
+          );
+        return JSON.stringify(v === undefined ? null : v);
+      }
+
+      // --- Estado del cobro de una mesa ---
+      function tblCheckout(t) {
+        return t && t.checkout && t.checkout.opId ? t.checkout : null;
+      }
+      function tblLocked(t) {
+        return !!tblCheckout(t);
+      }
+      function tblPartials(t) {
+        return t && Array.isArray(t.partials) ? t.partials : [];
+      }
+      function partialsSum(t) {
+        return tblPartials(t).reduce((a, p) => a + (Number(p.amount) || 0), 0);
+      }
+      function tblHadItems(t) {
+        return !!(t && (t.hadItems || (t.items && t.items.length)));
+      }
+      // Saldo que falta por pagar (total menos abonos parciales).
+      function amountDue() {
+        let t = total();
+        if (activeTable === null) return t;
+        return Math.max(0, t - partialsSum(ensureTable(activeTable)));
+      }
+      function tableCore(t) {
+        let x = normTable(t, t && t.n);
+        return {
+          open: x.open,
+          items: x.items,
+          checkout: x.checkout,
+          partials: x.partials,
+          tipState: x.tipState,
+        };
+      }
+      function sameTableContent(a, b) {
+        return stableStr(tableCore(a)) === stableStr(tableCore(b));
+      }
+      function tableDoc(t) {
+        let d = JSON.parse(JSON.stringify(normTable(t, t.n)));
+        delete d.dirty;
+        return d;
+      }
+      function applyRelease(t, saleId, extra) {
+        t.open = false;
+        t.items = [];
+        t.openedAt = null;
+        t.tipState = { mode: "none", custom: "" };
+        t.checkout = null;
+        t.partials = [];
+        t.hadItems = false;
+        t.releasedBySale = saleId || null;
+        t.movedTo = null;
+        t.movedFrom = null;
+        t.lastReleasedAt = Date.now();
+        t.lastReleasedBy = currentDeviceId();
+        Object.assign(t, extra || {});
+        return t;
+      }
+      function lockMsg(t) {
+        let co = tblCheckout(t);
+        return co && co.state === "pendiente"
+          ? "Mesa " + t.n + ": el pago ya está registrado y se está confirmando"
+          : "Mesa " + t.n + ": el cobro está en curso. Cancela el cobro para corregir productos.";
+      }
+      function shortOp(id) {
+        return String(id || "").replace(/-/g, "").slice(0, 8).toUpperCase();
+      }
+
+      // --- Conflictos entre dispositivos (nunca se pisan datos en silencio) ---
+      let tableConflicts = (function () {
+        try {
+          return JSON.parse(localStorage.getItem("bullet_table_conflicts") || "{}");
+        } catch (e) {
+          return {};
+        }
+      })();
+      function saveConflicts() {
+        try {
+          localStorage.setItem("bullet_table_conflicts", JSON.stringify(tableConflicts));
+        } catch (e) {}
+      }
+      function adoptRemoteTable(n, remote) {
+        let t = normTable({ ...remote, n }, n);
+        t.dirty = false;
+        data.tables[n] = t;
+        persist();
+        afterRemoteTables();
+      }
+      function handleTableConflict(n, remote, reason) {
+        let local = data.tables[n] ? tableDoc(data.tables[n]) : null,
+          lco = local && local.checkout;
+        // Liberada por el mismo cobro en otro dispositivo: no es un conflicto real.
+        if (
+          remote &&
+          lco &&
+          remote.open === false &&
+          remote.releasedBySale &&
+          remote.releasedBySale === lco.opId
+        ) {
+          adoptRemoteTable(n, remote);
+          return;
+        }
+        if (local && remote && sameTableContent(local, remote)) {
+          adoptRemoteTable(n, remote);
+          return;
+        }
+        tableConflicts[n] = {
+          at: Date.now(),
+          reason: reason || "conflict",
+          local,
+          remote: remote ? JSON.parse(JSON.stringify(remote)) : null,
+        };
+        saveConflicts();
+        BulletAudit.record("tableConflict", {
+          table: Number(n),
+          reason: reason || "conflict",
+          localItems: local ? local.items : [],
+          serverItems: remote ? remote.items || [] : [],
+          serverRev: remote ? Number(remote.rev) || 0 : 0,
+        });
+        if (remote) adoptRemoteTable(n, remote);
+        renderTablesNote();
+        toast(
+          "Mesa " +
+            n +
+            ": otro dispositivo la modificó. Se cargó la versión del servidor; revisa tus cambios.",
+        );
+      }
+      function applyTableConflict(n) {
+        n = Number(n);
+        let c = tableConflicts[n];
+        if (!c || !c.local) return;
+        let t = ensureTable(n);
+        if (tblLocked(t)) {
+          toast(lockMsg(t));
+          return;
+        }
+        if (
+          !confirm(
+            "¿Aplicar tus cambios a la Mesa " +
+              n +
+              "?\nReemplazarán los productos actuales de la mesa (" +
+              t.items.reduce((a, x) => a + x.qty, 0) +
+              " unidades) por los tuyos (" +
+              (c.local.items || []).reduce((a, x) => a + (Number(x.qty) || 0), 0) +
+              " unidades).",
+          )
+        )
+          return;
+        let mine = normTable(c.local, n);
+        if (!deviceIsMain() && tblHadItems(t) && !mine.items.length) {
+          toast("No puedes dejar la mesa sin productos");
+          return;
+        }
+        t.items = mine.items;
+        t.tipState = mine.tipState;
+        if (!t.open) {
+          t.open = true;
+          t.openedAt = Date.now();
+          t.checkout = null;
+          t.partials = [];
+        }
+        delete tableConflicts[n];
+        saveConflicts();
+        BulletAudit.record("tableConflictResolved", { table: n, applied: true, items: t.items });
+        if (activeTable === n) setActiveTable(n);
+        saveTable(n);
+        renderTables();
+        renderCart();
+        renderTablesNote();
+      }
+      function discardTableConflict(n) {
+        n = Number(n);
+        delete tableConflicts[n];
+        saveConflicts();
+        BulletAudit.record("tableConflictResolved", { table: n, applied: false });
+        renderTablesNote();
+      }
+      renderTablesNote = function () {
+        let el = gid("tablesSyncNote");
+        if (!el) return;
+        let parts = [];
+        if (tablesErrMsg)
+          parts.push("⚠ Las mesas no se están sincronizando: " + esc(tablesErrMsg) + ".");
+        Object.keys(tableConflicts).forEach((n) => {
+          let c = tableConflicts[n],
+            li = ((c.local && c.local.items) || []).reduce((a, x) => a + (Number(x.qty) || 0), 0),
+            ri = ((c.remote && c.remote.items) || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
+          parts.push(
+            "⚠ <strong>Mesa " +
+              esc(n) +
+              "</strong>: tus cambios (" +
+              li +
+              " unid.) no se aplicaron " +
+              (c.reason === "rejected"
+                ? "porque el servidor los rechazó por permisos"
+                : "porque otro dispositivo cambió la mesa") +
+              " (servidor: " +
+              ri +
+              " unid.) · " +
+              agoText(c.at) +
+              ' <button class="btn small" onclick="applyTableConflict(' +
+              Number(n) +
+              ')">Aplicar mis cambios</button> <button class="btn small" onclick="discardTableConflict(' +
+              Number(n) +
+              ')">Descartar</button>',
+          );
+        });
+        el.style.display = parts.length ? "block" : "none";
+        el.innerHTML = parts.join("<br>");
+      };
+
+      // --- Escritura de mesas: transacción con verificación de versión ---
+      const tablePushes = new Map();
+      async function pushTable(n) {
+        n = Number(n);
+        if (!firebaseConfigured() || !syncReady || !deviceApproved || !syncDb) return;
+        let st = tablePushes.get(n) || {};
+        if (st.running) {
+          st.again = true;
+          tablePushes.set(n, st);
+          return;
+        }
+        st.running = true;
+        tablePushes.set(n, st);
+        try {
+          if (navigator.onLine === false) return;
+          let t = data.tables[n];
+          if (!t || !t.dirty) return;
+          let base = Number(t.rev) || 0,
+            sent = tableDoc(t),
+            ref = tablesRef().doc("mesa-" + n);
+          let res = await withTimeout(
+            syncDb.runTransaction(async (tx) => {
+              let snap = await tx.get(ref),
+                r = snap.exists ? snap.data() : null,
+                rrev = r ? Number(r.rev) || 0 : 0;
+              if (r && rrev !== base) {
+                if (sameTableContent(r, sent)) return { adopt: r };
+                return { conflict: r };
+              }
+              let doc = { ...sent, n, rev: rrev + 1, updatedAt: Date.now() };
+              tx.set(ref, doc);
+              return { written: doc };
+            }),
+            15000,
+          );
+          if (res.written) {
+            let cur = data.tables[n];
+            cur.rev = res.written.rev;
+            if (sameTableContent(cur, res.written)) cur.dirty = false;
+            persist();
+            tablesOk();
+            let co = tblCheckout(cur);
+            if (co && co.state === "pendiente") setTimeout(() => tryReleaseTable(n), 0);
+          } else if (res.adopt) adoptRemoteTable(n, res.adopt);
+          else if (res.conflict) handleTableConflict(n, res.conflict, "conflict");
+        } catch (e) {
+          if (e && e.code === "permission-denied") {
+            let r = null;
+            try {
+              let s = await tablesRef().doc("mesa-" + n).get();
+              r = s.exists ? s.data() : null;
+            } catch (x) {}
+            handleTableConflict(n, r, "rejected");
+          } else if (!(e && e.__timeout) && !(e && e.code === "unavailable")) {
+            console.warn("Mesa " + n + " pendiente de sincronizar:", e && (e.code || e.message));
+          }
+        } finally {
+          st.running = false;
+          if (st.again) {
+            st.again = false;
+            pushTable(n);
+          }
+          renderTables();
+        }
+      }
+      function pushDirtyTables() {
+        Object.values(data.tables || {}).forEach((t) => {
+          if (t && t.dirty) pushTable(t.n);
+        });
+      }
+      saveTable = function (n) {
+        let t = ensureTable(n);
+        if (t.items.length) t.hadItems = true;
+        t.dirty = true;
+        t.updatedAt = Date.now();
+        persist();
+        pushTable(n);
+      };
+      syncTable = function (t) {
+        if (t) pushTable(t.n);
+      };
+      syncTablesBatch = function (ts) {
+        (ts || []).forEach((t) => t && pushTable(t.n));
+      };
+      // La liberación directa ya no existe: solo applyRelease tras un cobro
+      // confirmado, una anulación de un PC Main o una mesa abierta sin consumo.
+      releaseTable = function (n) {
+        console.warn("Liberación directa bloqueada (Mesa " + n + "): usa el flujo de cobro");
+      };
+      mergeRemoteTable = function (r, id) {
+        let n = Number(r.n ?? String(id).replace("mesa-", ""));
+        if (!n) return false;
+        let l = data.tables[n];
+        if (l && l.dirty) return false; // el envío pendiente detectará conflictos
+        if (!l || (Number(r.rev) || 0) !== (Number(l.rev) || 0) || !sameTableContent(l, r)) {
+          let t = normTable({ ...r, n }, n);
+          t.dirty = false;
+          data.tables[n] = t;
+          return true;
+        }
+        return false;
+      };
+      afterRemoteTables = function () {
+        persist();
+        if (activeTable !== null) {
+          let t = ensureTable(activeTable);
+          if (!t.open) {
+            toast("La Mesa " + activeTable + " fue liberada");
+            setActiveTable(null);
+          } else {
+            cart = t.items;
+            tipState = t.tipState;
+          }
+        }
+        renderTables();
+        renderCart();
+      };
+      startTablesSync = async function () {
+        if (tablesUnsub) {
+          tablesUnsub();
+          tablesUnsub = null;
+        }
+        try {
+          let snap = await tablesRef().get(),
+            changed = false;
+          snap.docs.forEach((d) => {
+            if (mergeRemoteTable(d.data(), d.id)) changed = true;
+          });
+          if (changed) afterRemoteTables();
+          pushDirtyTables();
+          tablesUnsub = tablesRef().onSnapshot(
+            (s) => {
+              let c = false;
+              s.docs.forEach((d) => {
+                if (mergeRemoteTable(d.data(), d.id)) c = true;
+              });
+              if (c) afterRemoteTables();
+              tablesOk();
+              tryPendingReleases();
+            },
+            (err) => {
+              console.warn("Mesas en la nube no disponibles:", err.code || err.message);
+              tablesErr(err);
+            },
+          );
+          tryPendingReleases();
+        } catch (e) {
+          console.warn("Mesas en la nube no disponibles:", e.code || e.message);
+          tablesErr(e);
+        }
+      };
+
+      // --- Flujo de cobro de mesa: iniciado → pendiente → confirmado ---
+      function tableCheckoutAction() {
+        let t = ensureTable(activeTable),
+          co = tblCheckout(t);
+        if (!co) return startTableCheckout();
+        if (co.state === "pendiente") {
+          toast(lockMsg(t));
+          return;
+        }
+        return confirmTablePayment();
+      }
+      function startTableCheckout() {
+        let n = activeTable,
+          t = ensureTable(n);
+        if (!t.items.length) {
+          toast("La mesa no tiene productos para cobrar");
+          return;
+        }
+        if (tblLocked(t)) return;
+        t.checkout = {
+          opId: makeId(), // paymentOperationId: idempotencia del cobro
+          state: "iniciado",
+          subtotal: tableSub(t),
+          startedAt: new Date().toISOString(),
+          startedBy: currentDeviceId(),
+          startedByName: BulletSupervision.myName(),
+          operator: operatorName() || null,
+        };
+        saveTable(n);
+        BulletAudit.record("checkoutStarted", {
+          table: n,
+          paymentOperationId: t.checkout.opId,
+          state: "iniciado",
+          subtotal: t.checkout.subtotal,
+          items: t.items,
+        });
+        received = "";
+        renderCart();
+        renderTables();
+        toast("Cobro iniciado: elige el medio de pago y confirma");
+      }
+      async function cancelTableCheckout() {
+        let n = activeTable,
+          t = ensureTable(n),
+          co = tblCheckout(t);
+        if (!co) return;
+        if (co.state === "pendiente") {
+          toast(lockMsg(t));
+          return;
+        }
+        let parts = tblPartials(t);
+        if (parts.length) {
+          if (!deviceIsMain()) {
+            toast("Hay abonos registrados: solo un PC Main puede cancelar este cobro");
+            return;
+          }
+          if (!(await requireMainPassword("cancelar un cobro con abonos"))) return;
+        }
+        if (
+          !confirm(
+            "¿Cancelar el cobro de la Mesa " +
+              n +
+              "?\nLa mesa sigue OCUPADA con todos sus productos" +
+              (parts.length ? " y los abonos registrados" : "") +
+              ".",
+          )
+        )
+          return;
+        t.checkout = null;
+        saveTable(n);
+        BulletAudit.record("checkoutCancelled", {
+          table: n,
+          paymentOperationId: co.opId,
+          state: "cancelado",
+          subtotal: co.subtotal,
+          partialsKept: partialsSum(t),
+        });
+        renderCart();
+        renderTables();
+        toast("Cobro cancelado. La Mesa " + n + " sigue ocupada.");
+      }
+      async function registerPartialPayment() {
+        let n = activeTable,
+          t = ensureTable(n),
+          co = tblCheckout(t);
+        if (!co || co.state === "pendiente") return;
+        if (split.on) {
+          toast("Para un abono usa un solo medio de pago (desactiva el pago dividido)");
+          return;
+        }
+        if (tblPartials(t).length >= 6) {
+          toast("Máximo 6 abonos por cuenta");
+          return;
+        }
+        let due = amountDue(),
+          v = prompt(
+            "Abono parcial por " +
+              payment +
+              " · saldo actual " +
+              money(due) +
+              "\nValor del abono (menor que el saldo):",
+            "",
+          );
+        if (v === null) return;
+        let amount = Math.round(Number(String(v).replace(/[^\d.]/g, "")));
+        if (!Number.isFinite(amount) || amount <= 0 || amount >= due) {
+          toast("El abono debe ser mayor que $0 y menor que el saldo");
+          return;
+        }
+        if (
+          !confirm(
+            "Registrar abono de " +
+              money(amount) +
+              " por " +
+              payment +
+              " en la Mesa " +
+              n +
+              ".\nSaldo pendiente después del abono: " +
+              money(due - amount) +
+              ". La mesa sigue ocupada.",
+          )
+        )
+          return;
+        let p = {
+          id: makeId(),
+          method: payment,
+          amount,
+          at: new Date().toISOString(),
+          by: currentDeviceId(),
+          deviceName: BulletSupervision.myName(),
+          operator: operatorName() || null,
+        };
+        t.partials = tblPartials(t).concat(p);
+        saveTable(n);
+        BulletAudit.record("partialPayment", {
+          table: n,
+          paymentOperationId: co.opId,
+          state: "parcial",
+          amount,
+          method: payment,
+          subtotal: co.subtotal,
+          total: total(),
+          paidSoFar: partialsSum(t),
+          balance: due - amount,
+        });
+        received = "";
+        renderCart();
+        renderTables();
+        toast("Abono registrado. Saldo pendiente " + money(due - amount) + ". La mesa sigue ocupada.");
+      }
+      async function confirmTablePayment() {
+        let n = activeTable,
+          t = ensureTable(n),
+          co = tblCheckout(t);
+        if (!co || co.state === "pendiente" || saleInFlight) return;
+        let sub = tableSub(t);
+        if (sub !== Number(co.subtotal)) {
+          toast("La cuenta cambió desde que se inició el cobro. Cancela y vuelve a iniciarlo.");
+          return;
+        }
+        let tip = tipAmount(),
+          tot = sub + tip,
+          parts = tblPartials(t),
+          paidBefore = partialsSum(t),
+          due = tot - paidBefore,
+          fin = [],
+          rec = null,
+          change = null;
+        if (due < 0) {
+          toast("Los abonos superan el total de la cuenta. Revisa con un PC Main.");
+          return;
+        }
+        if (due > 0) {
+          if (split.on) {
+            let s = splitNums();
+            if (!s.ok || !Number.isFinite(s.rec) || s.rec < s.c) {
+              toast("Revisa los montos del pago dividido");
+              return;
+            }
+            fin = [
+              { method: "Efectivo", amount: s.c },
+              { method: split.rest, amount: s.rest },
+            ];
+            rec = s.rec;
+            change = s.rec - s.c;
+          } else if (payment === "Efectivo") {
+            if (received === "") {
+              toast("Escribe el efectivo recibido (o toca «Exacto») antes de confirmar");
+              return;
+            }
+            let r = Number(received);
+            if (!Number.isFinite(r) || r < due) {
+              toast("El efectivo recibido es menor que el saldo a pagar");
+              return;
+            }
+            fin = [{ method: "Efectivo", amount: due }];
+            rec = r;
+            change = r - due;
+          } else fin = [{ method: payment, amount: due }];
+        }
+        let payments = parts
+            .map((p) => ({ method: p.method, amount: Number(p.amount) || 0, partial: true, at: p.at }))
+            .concat(fin),
+          paidTotal = payments.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+        if (paidTotal < tot) {
+          toast("Los pagos no cubren el total de la cuenta");
+          return;
+        }
+        if (payments.length > 8) {
+          toast("Demasiados pagos en una cuenta");
+          return;
+        }
+        let methods = payments.map((p) => p.method).filter((v, i, a) => a.indexOf(v) === i);
+        if (
+          !confirm(
+            "Confirmar pago de la Mesa " +
+              n +
+              "\n\nTotal de la cuenta: " +
+              money(tot) +
+              (paidBefore ? "\nAbonos previos: " + money(paidBefore) : "") +
+              "\nA pagar ahora: " +
+              money(due) +
+              (fin.length ? " (" + fin.map((p) => p.method + " " + money(p.amount)).join(" + ") + ")" : "") +
+              (rec != null ? "\nRecibido: " + money(rec) + " · Vuelto: " + money(change) : "") +
+              "\n\n¿Confirmas que el pago se recibió?",
+          )
+        )
+          return; // la mesa sigue ocupada y el cobro sigue iniciado
+        let sale = {
+            id: co.opId,
+            paymentOperationId: co.opId,
+            date: new Date().toISOString(),
+            items: t.items.map((x) => ({ ...x })),
+            payment: methods.join(" + "),
+            payments,
+            paidTotal,
+            subtotal: sub,
+            tip,
+            total: tot,
+            deviceId: currentDeviceId(),
+            operator: operatorName() || null,
+            cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
+            table: n,
+            tableName: "Mesa " + n,
+            checkoutStartedAt: co.startedAt || null,
+            checkoutStartedBy: co.startedBy || null,
+          },
+          already = data.sales.find((s) => String(s.id) === String(co.opId)),
+          btn = gid("checkout");
+        if (rec != null) {
+          sale.received = rec;
+          sale.change = change;
+        }
+        if (!already) {
+          saleInFlight = true;
+          btn.disabled = true;
+          btn.textContent = "Registrando cobro…";
+          try {
+            await BulletStore.saveNewSale(sale);
+          } catch (err) {
+            saleInFlight = false;
+            let dup = err && (err.name === "ConstraintError" || /constraint/i.test(err.message || ""));
+            if (dup) already = (await BulletStore.get("sales", co.opId)) || sale;
+            else {
+              let msg = (err && err.message) || String(err);
+              t.checkout = { ...co, state: "fallido", error: msg.slice(0, 160), failedAt: new Date().toISOString() };
+              saveTable(n);
+              BulletAudit.record("checkoutFailed", {
+                table: n,
+                paymentOperationId: co.opId,
+                state: "fallido",
+                total: tot,
+                error: msg.slice(0, 160),
+              });
+              renderCart();
+              renderTables();
+              alert(
+                "El cobro NO se registró: no se pudo guardar en este dispositivo.\nLa Mesa " +
+                  n +
+                  " sigue ocupada con todos sus productos. Puedes reintentar.\n\nDetalle: " +
+                  msg,
+              );
+              return;
+            }
+          }
+          saleInFlight = false;
+        }
+        if (already) {
+          toast("Este cobro ya estaba registrado: no se duplicó");
+          sale = already;
+        } else {
+          data.sales.unshift(sale);
+          BulletStore.markSaved(sale);
+          persist();
+          BulletSync.kick("venta");
+        }
+        t.checkout = {
+          ...co,
+          state: "pendiente",
+          saleId: co.opId,
+          total: Number(sale.total) || tot,
+          paidTotal: Number(sale.paidTotal) || paidTotal,
+          registeredAt: new Date().toISOString(),
+        };
+        saveTable(n);
+        // El estado "pendiente" se guarda de inmediato (no en diferido).
+        await BulletStore.flushNow().catch(() => {});
+        if (!already)
+          BulletAudit.record("checkoutRegistered", {
+            table: n,
+            paymentOperationId: co.opId,
+            state: "pendiente",
+            subtotal: sub,
+            tip,
+            total: tot,
+            paidTotal,
+            received: rec,
+            change,
+            payments: payments.map((p) => ({ method: p.method, amount: p.amount, partial: !!p.partial })),
+          });
+        setActiveTable(null);
+        received = "";
+        resetSplit();
+        renderCart();
+        renderTables();
+        renderSales();
+        toast(
+          firebaseConfigured()
+            ? "Cobro registrado. La Mesa " + n + " se libera al confirmarse con el servidor."
+            : "Cobro registrado",
+        );
+        openReceipt(sale);
+        switchTab("mesas");
+        tryReleaseTable(n);
+      }
+
+      // --- Liberación: solo con la venta confirmada en el servidor ---
+      const tableReleasing = new Set();
+      function paySumOf(s) {
+        let p = Array.isArray(s.payments) && s.payments.length ? s.payments : [{ amount: s.total }];
+        return p.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+      }
+      async function tryReleaseTable(n) {
+        n = Number(n);
+        let t = data.tables[n],
+          co = tblCheckout(t);
+        if (!t || !t.open || !co || co.state !== "pendiente") return;
+        if (!firebaseConfigured()) {
+          // Sin Firebase, la venta guardada localmente es la confirmación.
+          applyRelease(t, co.opId);
+          t.dirty = false;
+          persist();
+          BulletAudit.record("tableReleased", { table: n, paymentOperationId: co.opId, state: "confirmado" });
+          if (activeTable === n) setActiveTable(null);
+          renderTables();
+          renderCart();
+          return;
+        }
+        if (!syncReady || !deviceApproved || navigator.onLine === false) return;
+        let ss = BulletSync.saleState(co.opId);
+        if (ss && ss.state !== "synced") return; // aún sin confirmación del servidor
+        if (tableReleasing.has(n) || (tablePushes.get(n) || {}).running) return;
+        tableReleasing.add(n);
+        try {
+          let ref = tablesRef().doc("mesa-" + n),
+            sref = salesRef().doc(String(co.opId));
+          let res = await withTimeout(
+            syncDb.runTransaction(async (tx) => {
+              let ts = await tx.get(ref),
+                sv = await tx.get(sref);
+              if (!sv.exists) return { wait: true };
+              let r = ts.exists ? ts.data() : null;
+              if (!r || !r.open) return { already: r };
+              if (!r.checkout || r.checkout.opId !== co.opId) return { conflict: r };
+              let s = sv.data();
+              let voidOk = s.voided && s.tableVoid && deviceIsMain();
+              if (
+                (s.voided && !voidOk) ||
+                (Number(s.subtotal) || 0) !== (Number(r.checkout.subtotal) || 0) ||
+                (!s.voided && paySumOf(s) < (Number(s.total) || 0))
+              )
+                return { invalid: s };
+              let rel = tableDoc(applyRelease(normTable(r, n), co.opId));
+              rel.rev = (Number(r.rev) || 0) + 1;
+              rel.updatedAt = Date.now();
+              tx.set(ref, rel);
+              return { released: rel, sale: s };
+            }),
+            15000,
+          );
+          if (res.released) {
+            let nt = normTable(res.released, n);
+            nt.dirty = false;
+            data.tables[n] = nt;
+            persist();
+            BulletAudit.record(res.sale && res.sale.voided ? "tableReleasedByVoid" : "tableReleased", {
+              table: n,
+              paymentOperationId: co.opId,
+              state: res.sale && res.sale.voided ? "anulado" : "confirmado",
+              total: Number(res.sale && res.sale.total) || 0,
+              paidTotal: res.sale ? paySumOf(res.sale) : 0,
+            });
+            if (activeTable === n) setActiveTable(null);
+            renderTables();
+            renderCart();
+            toast("Mesa " + n + " liberada: cobro confirmado por el servidor");
+          } else if (res.already) {
+            if (res.already) adoptRemoteTable(n, res.already);
+          } else if (res.conflict) handleTableConflict(n, res.conflict, "conflict");
+          else if (res.invalid && deviceIsMain())
+            toast("Mesa " + n + ": la venta registrada no cubre la cuenta. Revisa el cobro.");
+        } catch (e) {
+          // Sin conexión o sin permiso: la mesa sigue ocupada y se reintenta.
+          if (e && e.code === "permission-denied")
+            console.warn("Mesa " + n + ": liberación rechazada por las reglas");
+        } finally {
+          tableReleasing.delete(n);
+        }
+      }
+      function tryPendingReleases() {
+        Object.values(data.tables || {}).forEach((t) => {
+          let co = tblCheckout(t);
+          if (!t || !t.open || !co) return;
+          // Reconciliación: si ya existe la venta de este cobro (p. ej. la app
+          // se cerró justo después de registrarla), el pago está registrado.
+          if (co.state !== "pendiente") {
+            let s = data.sales.find((x) => String(x.id) === String(co.opId));
+            if (!s || (s.voided && !s.tableVoid)) return;
+            t.checkout = {
+              ...co,
+              state: "pendiente",
+              saleId: co.opId,
+              total: Number(s.total) || 0,
+              paidTotal: Number(s.paidTotal) || 0,
+              registeredAt: co.registeredAt || s.date,
+            };
+            saveTable(t.n);
+            BulletAudit.record("checkoutReconciled", {
+              table: t.n,
+              paymentOperationId: co.opId,
+              state: "pendiente",
+              previousState: co.state,
+            });
+          }
+          tryReleaseTable(t.n);
+        });
+      }
+      function onSaleConfirmed(id) {
+        Object.values(data.tables || {}).forEach((t) => {
+          let co = tblCheckout(t);
+          if (co && String(co.opId) === String(id)) tryReleaseTable(t.n);
+        });
+      }
+
+      // --- Anulación de cuenta (solo PC Main, con contraseña y motivo) ---
+      async function voidTableAccount() {
+        let n = activeTable,
+          t = ensureTable(n),
+          co = tblCheckout(t);
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede anular la cuenta de una mesa");
+          return;
+        }
+        if (co && co.state === "pendiente") {
+          toast(lockMsg(t));
+          return;
+        }
+        if (!(await requireMainPassword("anular la cuenta de la Mesa " + n))) return;
+        let reason = prompt("Motivo para anular la cuenta de la Mesa " + n + " sin cobro (queda en auditoría):", "");
+        if (!reason || !reason.trim()) {
+          toast("Se requiere un motivo");
+          return;
+        }
+        let sub = tableSub(t),
+          parts = tblPartials(t),
+          paid = partialsSum(t);
+        if (
+          !confirm(
+            "La Mesa " +
+              n +
+              " se liberará SIN cobro.\nConsumo: " +
+              money(sub) +
+              (paid ? "\nAbonos ya recibidos: " + money(paid) + " (devuélvelos o regístralos aparte)" : "") +
+              "\nQuedará registrada como venta ANULADA con el motivo. ¿Continuar?",
+          )
+        )
+          return;
+        let id = (co && co.opId) || makeId(),
+          now = new Date().toISOString(),
+          sale = {
+            id,
+            paymentOperationId: id,
+            date: now,
+            items: t.items.map((x) => ({ ...x })),
+            payment: "Cuenta anulada",
+            payments: parts.map((p) => ({ method: p.method, amount: Number(p.amount) || 0, partial: true, at: p.at })),
+            paidTotal: paid,
+            subtotal: sub,
+            tip: 0,
+            total: sub,
+            deviceId: currentDeviceId(),
+            operator: operatorName() || null,
+            cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
+            table: n,
+            tableName: "Mesa " + n,
+            voided: true,
+            voidedAt: now,
+            voidReason: "Cuenta de mesa anulada sin cobro: " + reason.trim(),
+            voidedBy: currentDeviceId(),
+            tableVoid: true,
+          };
+        if (!data.sales.some((s) => String(s.id) === String(id))) {
+          try {
+            await BulletStore.saveNewSale(sale);
+          } catch (e) {
+            alert("No se pudo registrar la anulación. La mesa sigue ocupada.\n" + ((e && e.message) || e));
+            return;
+          }
+          data.sales.unshift(sale);
+          BulletStore.markSaved(sale);
+          persist();
+          BulletSync.kick("venta");
+        }
+        t.checkout = {
+          opId: id,
+          state: "pendiente",
+          subtotal: sub,
+          voidRelease: true,
+          startedAt: (co && co.startedAt) || now,
+          startedBy: (co && co.startedBy) || currentDeviceId(),
+          registeredAt: now,
+        };
+        saveTable(n);
+        BulletAudit.record("tableAccountVoided", {
+          table: n,
+          paymentOperationId: id,
+          state: "anulado",
+          subtotal: sub,
+          partials: paid,
+          items: sale.items,
+          reason: reason.trim(),
+        });
+        setActiveTable(null);
+        renderCart();
+        renderTables();
+        renderSales();
+        switchTab("mesas");
+        toast("Cuenta anulada. La Mesa " + n + " se libera al confirmarse con el servidor.");
+        tryReleaseTable(n);
+      }
+
+      // --- Acciones del panel de mesa (envolturas de funciones existentes) ---
+      const _selectTable170 = selectTable;
+      selectTable = function (n) {
+        let t = ensureTable(n);
+        if (!t.open) {
+          t.checkout = null;
+          t.partials = [];
+          t.hadItems = false;
+          t.releasedBySale = null;
+          t.movedTo = null;
+          t.movedFrom = null;
+        }
+        _selectTable170(n);
+      };
+      const _addCart170 = addCart;
+      addCart = function (i) {
+        if (activeTable !== null) {
+          let t = ensureTable(activeTable);
+          if (tblLocked(t)) {
+            toast(lockMsg(t));
+            return;
+          }
+        }
+        _addCart170(i);
+      };
+      const _changeQty170 = changeQty;
+      changeQty = function (i, nq) {
+        if (activeTable === null) return _changeQty170(i, nq);
+        let t = ensureTable(activeTable),
+          item = cart[i];
+        if (tblLocked(t)) {
+          toast(lockMsg(t));
+          renderCart();
+          return;
+        }
+        if (!item) return;
+        let before = item.qty,
+          after = Math.max(0, Math.min(999, Number(nq) || 0)),
+          remaining = cart.reduce((a, x, k) => a + (k === i ? after : x.qty), 0);
+        if (!deviceIsMain() && remaining === 0 && tblHadItems(t)) {
+          toast(
+            "No puedes dejar la mesa sin productos: solo un cobro confirmado la libera. Un PC Main puede anular la cuenta.",
+          );
+          renderCart();
+          return;
+        }
+        let name = item.name,
+          price = item.price,
+          n = activeTable;
+        _changeQty170(i, nq);
+        if (after < before)
+          BulletAudit.record("tableItemCorrected", {
+            table: n,
+            item: name,
+            price,
+            qtyBefore: before,
+            qtyAfter: after,
+            subtotalAfter: tableSub(ensureTable(n)),
+          });
+      };
+      const _clearCart170 = clearCart;
+      clearCart = function () {
+        if (activeTable === null) return _clearCart170();
+        let n = activeTable,
+          t = ensureTable(n);
+        if (tblLocked(t)) {
+          if (deviceIsMain() && tblCheckout(t).state !== "pendiente") return voidTableAccount();
+          toast(lockMsg(t));
+          return;
+        }
+        if (!t.items.length && !tblHadItems(t) && !tblPartials(t).length) {
+          // Mesa abierta por error, sin consumo: puede liberarse.
+          setActiveTable(null);
+          applyRelease(t, null);
+          saveTable(n);
+          BulletAudit.record("tableReleasedEmpty", { table: n });
+          renderTables();
+          renderCart();
+          switchTab("mesas");
+          toast("Mesa " + n + " liberada (no tenía consumo)");
+          return;
+        }
+        if (!deviceIsMain()) {
+          toast(
+            "Solo un cobro confirmado libera la mesa. Para corregir, ajusta los productos o pide a un PC Main anular la cuenta.",
+          );
+          return;
+        }
+        voidTableAccount();
+      };
+      // Mover mesa: transacción sobre ambas mesas (validada por las reglas).
+      moveTable = function (from, to) {
+        from = Number(from);
+        to = Number(to);
+        if (!from || !to || from === to) return false;
+        let a = ensureTable(from),
+          b = ensureTable(to);
+        if (tblLocked(a) || tblPartials(a).length) {
+          toast("No se puede mover una mesa con cobro iniciado o abonos");
+          return false;
+        }
+        if (b.open) {
+          toast("La Mesa " + to + " ya está ocupada");
+          return false;
+        }
+        if (firebaseConfigured()) return false; // se usa moveTableSafe (asíncrono)
+        b.items = a.items.map((x) => ({ ...x }));
+        b.tipState = { ...a.tipState };
+        b.open = true;
+        b.openedAt = a.openedAt || Date.now();
+        b.hadItems = true;
+        b.movedFrom = from;
+        applyRelease(a, null, { movedTo: to });
+        persist();
+        if (activeTable === from) setActiveTable(to);
+        return true;
+      };
+      async function moveTableSafe(from, to) {
+        if (!firebaseConfigured()) return moveTable(from, to);
+        let a = ensureTable(from),
+          b = ensureTable(to);
+        if (tblLocked(a) || tblPartials(a).length) {
+          toast("No se puede mover una mesa con cobro iniciado o abonos");
+          return false;
+        }
+        if (b.open) {
+          toast("La Mesa " + to + " ya está ocupada");
+          return false;
+        }
+        if (!syncReady || navigator.onLine === false) {
+          toast("Conéctate a internet para mover la mesa (el cambio se valida en el servidor)");
+          return false;
+        }
+        if (a.dirty) await pushTable(from);
+        if (data.tables[from].dirty) {
+          toast("La mesa tiene cambios sin sincronizar; intenta de nuevo en unos segundos");
+          return false;
+        }
+        let baseA = Number(data.tables[from].rev) || 0;
+        try {
+          let res = await withTimeout(
+            syncDb.runTransaction(async (tx) => {
+              let ra = tablesRef().doc("mesa-" + from),
+                rb = tablesRef().doc("mesa-" + to),
+                sa = await tx.get(ra),
+                sb = await tx.get(rb),
+                A = sa.exists ? sa.data() : null,
+                B = sb.exists ? sb.data() : null;
+              if (!A || (Number(A.rev) || 0) !== baseA || !A.open) return { conflict: A };
+              if (A.checkout || (A.partials && A.partials.length)) return { locked: true };
+              if (B && B.open) return { busy: true };
+              let now = Date.now(),
+                nb = tableDoc(
+                  normTable(
+                    {
+                      n: to,
+                      open: true,
+                      items: A.items || [],
+                      tipState: A.tipState,
+                      openedAt: A.openedAt || now,
+                      hadItems: true,
+                      movedFrom: from,
+                    },
+                    to,
+                  ),
+                ),
+                na = tableDoc(applyRelease(normTable(A, from), null, { movedTo: to }));
+              nb.rev = (B ? Number(B.rev) || 0 : 0) + 1;
+              nb.updatedAt = now;
+              na.rev = (Number(A.rev) || 0) + 1;
+              na.updatedAt = now;
+              tx.set(rb, nb);
+              tx.set(ra, na);
+              return { na, nb };
+            }),
+            15000,
+          );
+          if (res.conflict !== undefined) {
+            handleTableConflict(from, res.conflict, "conflict");
+            return false;
+          }
+          if (res.locked || res.busy) {
+            toast(res.busy ? "La Mesa " + to + " ya está ocupada" : "La mesa tiene un cobro en curso");
+            return false;
+          }
+          data.tables[from] = normTable(res.na, from);
+          data.tables[to] = normTable(res.nb, to);
+          persist();
+          if (activeTable === from) setActiveTable(to);
+          BulletAudit.record("tableMoved", { from, to, items: res.nb.items });
+          return true;
+        } catch (e) {
+          toast("No se pudo mover la mesa: " + ((e && (e.code || e.message)) || e));
+          return false;
+        }
+      }
+      doMove = async function (to) {
+        let from = activeTable;
+        if (from === null) return;
+        if (await moveTableSafe(from, Number(to))) {
+          closeMove();
+          renderTables();
+          renderCart();
+          toast("Cuenta pasada de la Mesa " + from + " a la Mesa " + to);
+        }
+      };
+
+      // --- Presentación de mesas y del cobro ---
+      function tableVisual(t) {
+        if (!t || !t.open) return { cls: "free", label: "🟢 Libre" };
+        let co = tblCheckout(t);
+        if (co && co.state === "pendiente") return { cls: "pendingpay", label: "🟣 Pago registrado · confirmando" };
+        if (co && co.state === "fallido") return { cls: "failed", label: "🔴 Cobro fallido" };
+        if (co) return { cls: "paying", label: "🔵 En cobro" + (tblPartials(t).length ? " · abono parcial" : "") };
+        return { cls: "busy", label: "🟠 Ocupada" };
+      }
+      renderTables = function () {
+        let el = gid("tablesGrid");
+        if (!el) return;
+        let max = tableCount();
+        Object.values(data.tables).forEach((t) => {
+          if (t.open && t.n > max) max = t.n;
+        });
+        let h = "",
+          busy = 0,
+          paying = 0;
+        for (let i = 1; i <= max; i++) {
+          let t = data.tables[i],
+            v = tableVisual(t),
+            open = !!(t && t.open);
+          if (open) busy++;
+          if (open && tblCheckout(t)) paying++;
+          let paid = open ? partialsSum(t) : 0;
+          h += `<button class="tcard ${v.cls}${activeTable === i ? " sel" : ""}" onclick="selectTable(${i})"><div><div class="tname">Mesa ${i}</div><div class="tstate">${v.label}</div></div>${open ? `<div><div class="tamount">${money(tableSub(t))}</div><div class="tunits">${tableUnits(t)} producto${tableUnits(t) === 1 ? "" : "s"}${paid ? " · abonado " + money(paid) : ""}${t.dirty ? " · sin sincronizar" : ""}</div></div>` : ""}</button>`;
+        }
+        el.innerHTML = h;
+        gid("tablesSummary").textContent =
+          busy +
+          " ocupada" +
+          (busy === 1 ? "" : "s") +
+          (paying ? " (" + paying + " en cobro)" : "") +
+          " · " +
+          (max - busy) +
+          " libre" +
+          (max - busy === 1 ? "" : "s");
+        gid("tableCountSel").value = String(tableCount());
+        renderTablesNote();
+      };
+      function applyCheckoutButton() {
+        if (activeTable === null) return;
+        let b = gid("checkout"),
+          t = ensureTable(activeTable),
+          co = tblCheckout(t);
+        if (!co) {
+          b.disabled = !cart.length;
+          b.textContent = "Cobrar mesa " + activeTable + " · " + money(total());
+          return;
+        }
+        if (co.state === "pendiente") {
+          b.disabled = true;
+          b.textContent = "Pago registrado · confirmando…";
+          return;
+        }
+        b.textContent = "Confirmar pago · " + money(amountDue());
+        if (saleInFlight) b.disabled = true;
+        // En mesas el efectivo recibido es obligatorio (no se asume pago exacto).
+        let line = gid("changeLine");
+        if (line && payment === "Efectivo" && !split.on && received === "" && amountDue() > 0) {
+          line.className = "change-line muted";
+          line.textContent = "Escribe cuánto recibiste (o toca «Exacto») para confirmar el pago";
+        }
+      }
+      function applyTableUI() {
+        let bar = gid("checkoutBar"),
+          clear = gid("clearBtn"),
+          mv = document.querySelector('#ctxBar button[onclick="openMove()"]');
+        if (!bar || !clear) return;
+        if (activeTable === null) {
+          bar.style.display = "none";
+          clear.style.display = "";
+          if (mv) mv.style.display = "";
+          return;
+        }
+        let t = ensureTable(activeTable),
+          co = tblCheckout(t),
+          main = deviceIsMain(),
+          parts = tblPartials(t),
+          paid = partialsSum(t);
+        if (co)
+          document
+            .querySelectorAll("#cart .qty button, #cart .qty input")
+            .forEach((x) => (x.disabled = true));
+        if (co && (co.state === "pendiente" || !main)) clear.style.display = "none";
+        else if (!t.items.length && !tblHadItems(t) && !parts.length) {
+          clear.style.display = "";
+          clear.textContent = "Liberar mesa vacía";
+        } else if (main) {
+          clear.style.display = "";
+          clear.textContent = "Anular cuenta";
+        } else clear.style.display = "none";
+        if (mv) mv.style.display = co || parts.length ? "none" : "";
+        if (!co && !parts.length) {
+          bar.style.display = "none";
+          return;
+        }
+        bar.style.display = "block";
+        bar.className =
+          "checkout-bar" +
+          (co && co.state === "pendiente" ? " pendingpay" : co && co.state === "fallido" ? " failed" : "");
+        let txt = "";
+        if (!co) txt = "Abonos registrados: " + money(paid) + " · saldo " + money(amountDue());
+        else if (co.state === "pendiente")
+          txt =
+            "🟣 Pago registrado (operación " +
+            shortOp(co.opId) +
+            "). La mesa se libera cuando el servidor confirme la venta.";
+        else
+          txt =
+            (co.state === "fallido"
+              ? "🔴 El último intento falló: " + (co.error || "error") + ". La mesa sigue ocupada."
+              : "🔵 Cobro iniciado · operación " + shortOp(co.opId) + " · cuenta bloqueada") +
+            (co.startedBy && co.startedBy !== currentDeviceId() ? " · iniciado en " + (co.startedByName || "otro equipo") : "") +
+            (paid ? " · abonado " + money(paid) + " · saldo " + money(amountDue()) : "");
+        let btns = "";
+        if (co && co.state !== "pendiente") {
+          btns += '<button class="btn small" onclick="registerPartialPayment()">Abono parcial</button>';
+          if (!parts.length || main)
+            btns += '<button class="btn small" onclick="cancelTableCheckout()">Cancelar cobro</button>';
+        }
+        bar.innerHTML = esc(txt) + (btns ? '<div class="ctx-actions">' + btns + "</div>" : "");
+      }
+      const _renderCash170 = renderCash;
+      renderCash = function (keepInput) {
+        _renderCash170(keepInput);
+        applyCheckoutButton();
+      };
+      const _renderCart170 = renderCart;
+      renderCart = function () {
+        _renderCart170();
+        applyTableUI();
+        applyCheckoutButton();
+      };
+      // Abonos de mesas abiertas visibles en la caja.
+      const _renderCashDashboard170 = renderCashDashboard;
+      renderCashDashboard = function () {
+        _renderCashDashboard170();
+        let el = gid("cashSessionInfo"),
+          ab = Object.values(data.tables || {}).reduce((a, t) => a + (t && t.open ? partialsSum(t) : 0), 0);
+        if (el && ab) el.textContent += " · Abonos en mesas abiertas " + money(ab);
+      };
+
+      // --- Segundo PC Main: vinculación con código de un solo uso ---
+      function pairingRef() {
+        return cloudRoot().collection("control").doc("mainPairing");
+      }
+      function pairingCode() {
+        const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let r = crypto.getRandomValues(new Uint8Array(8));
+        return Array.from(r, (x) => A[x % A.length]).join("");
+      }
+      async function authorizeSecondMain() {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede autorizar otro Main");
+          return;
+        }
+        if (!syncReady || navigator.onLine === false) {
+          toast("Conéctate a internet para autorizar el segundo Main");
+          return;
+        }
+        let ids = mainIds();
+        if (ids.length >= 2) {
+          toast("Ya hay dos PC Main autorizados");
+          return;
+        }
+        if (!(await requireMainPassword("autorizar un segundo Main"))) return;
+        let code = pairingCode(),
+          expires = new Date(Date.now() + 10 * 60000);
+        try {
+          await adminRef().set({ mainDeviceIds: ids, updatedAt: Date.now() }, { merge: true });
+          await pairingRef().set({
+            code,
+            expiresAt: firebase.firestore.Timestamp.fromDate(expires),
+            createdBy: syncUser.uid,
+            createdAt: Date.now(),
+            used: false,
+            usedBy: null,
+            usedAt: null,
+            claimCode: null,
+          });
+        } catch (e) {
+          toast("No se pudo generar el código: " + ((e && (e.code || e.message)) || e));
+          return;
+        }
+        BulletAudit.record("mainPairingCreated", { expiresAt: expires.toISOString() });
+        alert(
+          "Código para vincular el segundo PC Main:\n\n" +
+            code.slice(0, 4) +
+            "-" +
+            code.slice(4) +
+            "\n\nVence a las " +
+            expires.toLocaleTimeString("es-CO", { hour12: false }) +
+            " (10 minutos) y sirve una sola vez.\n\nEn el otro equipo (ya autorizado como dispositivo): Ajustes > Administración principal > «Vincular como segundo Main».",
+        );
+        return code;
+      }
+      async function claimSecondMain() {
+        if (deviceIsMain()) {
+          toast("Este equipo ya es PC Main");
+          return;
+        }
+        if (!syncReady || !deviceApproved || navigator.onLine === false) {
+          toast("Este equipo debe estar autorizado y con internet");
+          return;
+        }
+        let v = prompt("Código de vinculación entregado por el PC Main:", "");
+        if (v === null) return;
+        let code = String(v).toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (code.length !== 8) {
+          toast("El código tiene 8 caracteres");
+          return;
+        }
+        let uid = syncUser.uid,
+          b = syncDb.batch();
+        b.update(pairingRef(), {
+          used: true,
+          usedBy: uid,
+          usedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          claimCode: code,
+        });
+        b.update(adminRef(), {
+          mainDeviceIds: firebase.firestore.FieldValue.arrayUnion(uid),
+          updatedAt: Date.now(),
+        });
+        b.update(devicesRef().doc(uid), { role: "main", mainSince: Date.now() });
+        try {
+          await withTimeout(b.commit(), 15000);
+        } catch (e) {
+          toast(
+            e && (e.code === "permission-denied" || e.code === "not-found")
+              ? "Código inválido, vencido o ya usado"
+              : "No se pudo vincular: " + ((e && (e.code || e.message)) || e),
+          );
+          return;
+        }
+        await loadAdminConfig();
+        if (!deviceIsMain()) {
+          toast("La vinculación no se completó; revisa con el PC Main");
+          return;
+        }
+        try {
+          if (devicesUnsub) devicesUnsub();
+        } catch (e) {}
+        devicesUnsub = null;
+        devErr = "";
+        startDevicesListener();
+        startDeviceStatusListener();
+        loadCashCloud();
+        BulletAudit.record("mainPaired", { mainDeviceIds: mainIds() });
+        renderRoleUI();
+        renderSettings();
+        toast("Este equipo ahora es PC Main");
+      }
+      async function revokeMain(id) {
+        if (!deviceIsMain()) return;
+        let uid = syncUser && syncUser.uid,
+          ids = mainIds();
+        if (id === uid) {
+          toast("No puedes revocarte a ti mismo");
+          return;
+        }
+        if (!ids.includes(id)) return;
+        if (!(await requireMainPassword("revocar un PC Main"))) return;
+        if (!confirm("¿Quitar los permisos de PC Main a este equipo? Seguirá autorizado como dispositivo de operación."))
+          return;
+        let rest = ids.filter((x) => x !== id);
+        try {
+          await adminRef().set({ mainDeviceIds: rest, mainDeviceId: rest[0], updatedAt: Date.now() }, { merge: true });
+          await devicesRef().doc(id).set({ role: "cashier" }, { merge: true });
+        } catch (e) {
+          toast("No se pudo revocar: " + ((e && (e.code || e.message)) || e));
+          return;
+        }
+        BulletAudit.record("mainRevoked", { deviceId: id, mainDeviceIds: rest });
+        await loadAdminConfig();
+        renderRoleUI();
+        toast("Permisos de Main revocados");
+      }
+      function renderMainList() {
+        let el = gid("mainList");
+        if (!el) return;
+        let ids = mainIds();
+        if (!deviceIsMain() || !ids.length || ids[0] === "__otro_equipo__") {
+          el.innerHTML = "";
+          return;
+        }
+        let rows = BulletSupervision.rows(),
+          uid = syncUser && syncUser.uid;
+        el.innerHTML = ids
+          .map((id, i) => {
+            let d = devicesList.find((x) => x.id === id),
+              r = rows.find((x) => x.id === id),
+              pill = !r ? "wait" : r.state === "connected" ? "ok" : r.state === "disconnected" ? "off" : "wait";
+            return (
+              '<div class="dev-row"><div><strong>Main ' +
+              (i + 1) +
+              " · " +
+              esc((d && d.name) || (id === uid ? BulletSupervision.myName() : "Equipo " + id.slice(0, 6))) +
+              "</strong>" +
+              (id === uid ? ' <span class="pill ok">Este equipo</span>' : "") +
+              ' <span class="pill ' +
+              pill +
+              '">' +
+              esc(r ? r.label : "Estado desconocido") +
+              '</span><div class="dev-id">' +
+              esc(id) +
+              (r && Number.isFinite(r.reportedAt) ? " · último reporte " + esc(agoText(r.reportedAt)) : "") +
+              "</div></div><div>" +
+              (id !== uid
+                ? '<button class="btn small danger" onclick="revokeMain(\'' + esc(id) + "')\">Revocar Main</button>"
+                : "") +
+              "</div></div>"
+            );
+          })
+          .join("");
+      }
+      const _renderRoleUI170 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI170();
+        let main = deviceIsMain(),
+          ids = mainIds(),
+          sm = gid("secondMainBtn"),
+          cm = gid("claimSecondMainBtn"),
+          ab = gid("auditBtn"),
+          st = gid("adminRoleState");
+        if (sm) sm.style.display = main && ids.length < 2 ? "" : "none";
+        if (cm)
+          cm.style.display =
+            !main && deviceApproved && adminConfig && adminConfig.mainDeviceId ? "" : "none";
+        if (ab) ab.style.display = main ? "" : "none";
+        if (st && main && ids.length > 1 && syncUser)
+          st.textContent = st.textContent.replace(
+            "Este equipo es el PC Main",
+            "Este equipo es el PC Main " + (ids.indexOf(syncUser.uid) + 1) + " de " + ids.length,
+          );
+        let op = gid("operatorName");
+        if (op && document.activeElement !== op) op.value = operatorName();
+        renderMainList();
+      };
+      const _renderDevices170 = renderDevices;
+      renderDevices = function () {
+        _renderDevices170();
+        renderMainList();
+      };
+
+      // --- Conflictos entre los dos Main en productos y correcciones ---
+      const _saveProduct170 = saveProduct;
+      saveProduct = async function () {
+        if (editing !== null && deviceIsMain() && syncReady && navigator.onLine !== false) {
+          let p = data.products[editing];
+          if (p && p.id) {
+            try {
+              let s = await withTimeout(productsRef().doc(String(p.id)).get({ source: "server" }), 8000);
+              if (s.exists && Number(s.data().updatedAt || 0) !== Number(p.updatedAt || 0)) {
+                let r = { ...s.data(), id: s.id };
+                data.products[editing] = r;
+                persist();
+                renderProducts();
+                renderProductRows();
+                closeModal();
+                BulletAudit.record("productConflict", { productId: r.id, serverName: r.name, serverPrice: r.price });
+                alert(
+                  "El producto «" +
+                    r.name +
+                    "» fue modificado en otro dispositivo mientras lo editabas.\nSe cargó la versión actual (" +
+                    money(r.price) +
+                    "): revísala y vuelve a editarla si es necesario.",
+                );
+                return;
+              }
+            } catch (e) {}
+          }
+        }
+        return _saveProduct170();
+      };
+      const _confirmPaymentCorrection170 = confirmPaymentCorrection;
+      confirmPaymentCorrection = async function () {
+        let s = data.sales.find((x) => String(x.id) === String(correctionSaleId));
+        if (s && syncReady && navigator.onLine !== false && !BulletSync.isPending(s.id)) {
+          try {
+            let snap = await withTimeout(salesRef().doc(String(s.id)).get({ source: "server" }), 8000);
+            if (snap.exists) {
+              let r = snap.data();
+              if (
+                String(r.payment || "") !== String(s.payment || "") ||
+                (r.paymentCorrections || []).length !== (s.paymentCorrections || []).length ||
+                !!r.voided !== !!s.voided
+              ) {
+                let i = data.sales.indexOf(s);
+                if (i >= 0) data.sales[i] = { ...r, id: snap.id };
+                persist();
+                renderSales();
+                closeCorrection();
+                alert(
+                  "Esta venta fue modificada en otro dispositivo (medio actual: " +
+                    r.payment +
+                    ").\nRevisa el estado actual y vuelve a corregir si todavía es necesario.",
+                );
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+        return _confirmPaymentCorrection170();
+      };
+
+      // --- Consulta de auditoría (cualquier PC Main) ---
+      const AUDIT_LABEL = {
+        checkoutStarted: "Cobro iniciado",
+        checkoutCancelled: "Cobro cancelado",
+        checkoutRegistered: "Cobro registrado (pendiente de confirmar)",
+        checkoutFailed: "Cobro fallido",
+        checkoutReconciled: "Cobro reconciliado (venta ya registrada)",
+        partialPayment: "Abono parcial",
+        tableReleased: "Mesa liberada (cobro confirmado)",
+        tableReleasedByVoid: "Mesa liberada por anulación",
+        tableReleasedEmpty: "Mesa sin consumo liberada",
+        tableAccountVoided: "Cuenta de mesa anulada",
+        tableItemCorrected: "Corrección de productos en mesa",
+        tableMoved: "Mesa movida",
+        tableConflict: "Conflicto en mesa",
+        tableConflictResolved: "Conflicto de mesa resuelto",
+        paymentCorrection: "Corrección de medio de pago",
+        cashClosed: "Cierre de caja",
+        cashClosedWithWarnings: "Cierre de caja con advertencias",
+        lateSalesReconciled: "Conciliación de ventas tardías",
+        adminPasswordChanged: "Cambio de contraseña administrativa",
+        mainPairingCreated: "Código para segundo Main generado",
+        mainPaired: "Segundo Main vinculado",
+        mainRevoked: "Main revocado",
+        productConflict: "Conflicto al editar producto",
+      };
+      function auditSummary(d) {
+        d = d || {};
+        let out = [];
+        if (d.table != null) out.push("Mesa " + d.table);
+        if (d.paymentOperationId) out.push("op. " + shortOp(d.paymentOperationId));
+        if (d.state) out.push("estado " + d.state);
+        if (d.total != null) out.push("total " + money(d.total));
+        if (d.paidTotal != null) out.push("pagado " + money(d.paidTotal));
+        if (d.received != null) out.push("recibido " + money(d.received));
+        if (d.amount != null) out.push("abono " + money(d.amount) + (d.method ? " " + d.method : ""));
+        if (d.balance != null) out.push("saldo " + money(d.balance));
+        if (Array.isArray(d.payments))
+          out.push(d.payments.map((p) => p.method + " " + money(p.amount)).join(" + "));
+        if (d.item) out.push(d.item + " " + d.qtyBefore + "→" + d.qtyAfter);
+        if (d.before && d.after) out.push((d.before.payment || "") + " → " + (d.after.payment || ""));
+        if (d.cashDelta) out.push("efectivo " + money(d.cashDelta));
+        if (d.reason) out.push("motivo: " + d.reason);
+        if (d.from) out.push("de Mesa " + d.from + " a Mesa " + d.to);
+        if (d.sessionId) out.push("caja " + String(d.sessionId).slice(0, 8));
+        if (d.deviceId) out.push("equipo " + String(d.deviceId).slice(0, 8));
+        return out.join(" · ");
+      }
+      async function openAuditLog() {
+        if (!deviceIsMain()) {
+          toast("La auditoría solo se consulta desde un PC Main");
+          return;
+        }
+        gid("auditModal").classList.add("show");
+        gid("auditRows").innerHTML = '<div class="sub">Cargando…</div>';
+        let list = [],
+          src = "Registros de este equipo";
+        if (syncReady && deviceApproved) {
+          try {
+            let s = await withTimeout(
+              cloudRoot().collection("audit").orderBy("at", "desc").limit(150).get(),
+              10000,
+            );
+            list = s.docs.map((d) => d.data());
+            src = "Firebase (todos los dispositivos) + registros aún no enviados de este equipo";
+          } catch (e) {
+            src = "No se pudo leer Firebase (" + ((e && (e.code || e.message)) || e) + "): se muestran los registros de este equipo";
+          }
+        }
+        let byId = new Map(list.map((e) => [e.id, e]));
+        (await BulletStore.all("audit")).forEach((e) => {
+          if (!byId.has(e.id)) byId.set(e.id, e);
+        });
+        let all = [...byId.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 200);
+        gid("auditInfo").textContent = src + " · " + all.length + " registros (más recientes primero)";
+        gid("auditRows").innerHTML =
+          all
+            .map(
+              (e) =>
+                '<div class="audit-row"><strong>' +
+                esc(AUDIT_LABEL[e.type] || e.type) +
+                "</strong> · " +
+                esc(new Date(e.at).toLocaleString("es-CO", { hour12: false })) +
+                '<div class="sub">' +
+                esc((e.deviceName || "Equipo") + " (" + (e.role === "main" ? "Main" : "secundario") + ")") +
+                (e.operator ? " · atendió " + esc(e.operator) : "") +
+                " · " +
+                esc(String(e.by || "").slice(0, 10)) +
+                "</div><div>" +
+                esc(auditSummary(e.details)) +
+                "</div></div>",
+            )
+            .join("") || '<div class="sub">Sin registros todavía.</div>';
+      }
+      function closeAuditLog() {
+        gid("auditModal").classList.remove("show");
+      }
+
+      // Al arrancar se reconcilian los cobros ya registrados (sin conexión
+      // solo actualiza el estado local; la liberación espera al servidor).
+      BulletStore.ready.then(() => setTimeout(tryPendingReleases, 0));
+      // Reintentos periódicos de mesas pendientes (no depende de "online").
+      setInterval(() => {
+        if (document.visibilityState === "hidden") return;
+        pushDirtyTables();
+        tryPendingReleases();
+      }, 20000);
+      window.addEventListener("online", () => {
+        setTimeout(() => {
+          pushDirtyTables();
+          tryPendingReleases();
+        }, 1500);
+      });
       renderArchiveLog();
 
       renderProducts();
