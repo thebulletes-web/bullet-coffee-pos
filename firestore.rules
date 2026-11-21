@@ -1,34 +1,134 @@
 rules_version = '2';
+// Bullet POS 1.6.0 — Reglas de seguridad de Firestore.
+// Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
+// autorizados de ESE negocio (devices/{uid}.active == true) pueden usarlos.
+// El PC Main es el dispositivo cuyo UID figura en control/admin.mainDeviceId.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function devicePath(cafeId) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/devices/$(request.auth.uid);
+    }
+    function adminPath(cafeId) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/control/admin;
+    }
     function approvedDevice(cafeId) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/cafeterias/$(cafeId)/devices/$(request.auth.uid))
-        && get(/databases/$(database)/documents/cafeterias/$(cafeId)/devices/$(request.auth.uid)).data.active == true;
+      return signedIn()
+        && exists(devicePath(cafeId))
+        && get(devicePath(cafeId)).data.active == true;
+    }
+    function isMain(cafeId) {
+      return approvedDevice(cafeId)
+        && exists(adminPath(cafeId))
+        && get(adminPath(cafeId)).data.mainDeviceId == request.auth.uid;
+    }
+    // Compatibilidad: mientras no exista un PC Main configurado, los
+    // dispositivos autorizados conservan los permisos que tenían antes.
+    function isMainOrBootstrap(cafeId) {
+      return isMain(cafeId) || (approvedDevice(cafeId) && !exists(adminPath(cafeId)));
     }
 
+    // --- Dispositivos ---
     match /cafeterias/{cafeId}/devices/{deviceId} {
-      allow get: if request.auth != null && request.auth.uid == deviceId;
-      allow list: if approvedDevice(cafeId);
-      // Un equipo nuevo puede pedir acceso (siempre inactivo); un equipo
-      // aprobado puede registrar/autorizar otros.
-      allow create: if approvedDevice(cafeId)
-        || (request.auth != null && request.auth.uid == deviceId
+      allow get: if signedIn() && (request.auth.uid == deviceId || isMainOrBootstrap(cafeId));
+      allow list: if isMainOrBootstrap(cafeId);
+      // Un equipo nuevo solo puede pedir acceso (siempre inactivo).
+      allow create: if isMainOrBootstrap(cafeId)
+        || (signedIn() && request.auth.uid == deviceId
             && request.resource.data.active == false
-            && request.resource.data.keys().hasOnly(['active','requestedAt','ua']));
-      allow update, delete: if approvedDevice(cafeId);
+            && request.resource.data.keys().hasOnly(['active', 'requestedAt', 'ua']));
+      // Autorizar, revocar y nombrar dispositivos: solo el PC Main.
+      allow update, delete: if isMainOrBootstrap(cafeId);
     }
 
+    // --- Catálogo: todos lo leen, solo el PC Main lo modifica ---
     match /cafeterias/{cafeId}/products/{productId} {
-      allow read, write: if approvedDevice(cafeId);
+      allow read: if approvedDevice(cafeId);
+      allow write: if isMainOrBootstrap(cafeId);
     }
 
+    // --- Ventas ---
     match /cafeterias/{cafeId}/sales/{saleId} {
-      allow read, write: if approvedDevice(cafeId);
+      allow read: if approvedDevice(cafeId);
+      // Cada dispositivo registra sus propias ventas; el PC Main también puede
+      // subir ventas de migración/restauración.
+      allow create: if isMainOrBootstrap(cafeId)
+        || (approvedDevice(cafeId)
+            && request.resource.data.deviceId == request.auth.uid
+            && request.resource.data.total is number
+            && request.resource.data.items is list);
+      // Anular, corregir el pago o archivar: solo el PC Main. El dueño de la
+      // venta solo puede reenviarla sin cambios (reintento idempotente).
+      allow update: if isMainOrBootstrap(cafeId)
+        || (approvedDevice(cafeId)
+            && resource.data.deviceId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().size() == 0);
+      // Las ventas nunca se eliminan (se anulan o archivan).
+      allow delete: if false;
     }
 
+    // --- Mesas: operación compartida entre dispositivos autorizados ---
     match /cafeterias/{cafeId}/mesas/{mesaId} {
-      allow read, write: if approvedDevice(cafeId);
+      allow read, create, update: if approvedDevice(cafeId);
+      allow delete: if isMainOrBootstrap(cafeId);
+    }
+
+    // --- Control: admin (solo el PC Main lo lee), caja y datos del negocio ---
+    match /cafeterias/{cafeId}/control/{docId} {
+      allow get: if approvedDevice(cafeId)
+        && (docId != 'admin' || resource == null
+            || resource.data.mainDeviceId == request.auth.uid);
+      allow list: if false;
+      // Configurar el PC Main: solo si aún no existe y para sí mismo.
+      allow create: if approvedDevice(cafeId)
+        && ((docId == 'admin'
+             && !exists(adminPath(cafeId))
+             && request.resource.data.mainDeviceId == request.auth.uid)
+            || (docId != 'admin' && isMain(cafeId)));
+      // El PC Main no puede transferirse desde la app (solo desde la consola).
+      allow update: if isMain(cafeId)
+        && (docId != 'admin'
+            || request.resource.data.mainDeviceId == resource.data.mainDeviceId);
+      allow delete: if false;
+    }
+
+    // --- Caja compartida: todos la leen, solo el PC Main la administra ---
+    match /cafeterias/{cafeId}/cashSessions/{sessionId} {
+      allow read: if approvedDevice(cafeId);
+      allow create, update: if isMain(cafeId);
+      allow delete: if false;
+    }
+    match /cafeterias/{cafeId}/cashMovements/{moveId} {
+      allow read: if approvedDevice(cafeId);
+      allow create, update: if isMain(cafeId);
+      allow delete: if false;
+    }
+
+    // --- Reporte de estado de cada dispositivo (supervisión del PC Main) ---
+    match /cafeterias/{cafeId}/deviceStatus/{deviceId} {
+      allow read: if isMainOrBootstrap(cafeId);
+      allow create, update: if approvedDevice(cafeId)
+        && request.auth.uid == deviceId
+        && request.resource.data.deviceId == request.auth.uid;
+      allow delete: if isMainOrBootstrap(cafeId);
+    }
+
+    // --- Auditoría: solo se agregan registros; nunca se editan ni borran ---
+    match /cafeterias/{cafeId}/audit/{entryId} {
+      allow read: if isMain(cafeId);
+      allow create: if approvedDevice(cafeId)
+        && request.resource.data.by == request.auth.uid;
+      // Reintento idempotente: reescribir exactamente el mismo contenido.
+      allow update: if approvedDevice(cafeId)
+        && request.resource.data == resource.data;
+      allow delete: if false;
+    }
+
+    // Todo lo demás queda denegado.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
