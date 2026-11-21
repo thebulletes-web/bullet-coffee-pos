@@ -1200,6 +1200,74 @@
           text-align: left;
         }
       }
+      /* 2.0.0: seguridad, turnos, licencia y caja profesional */
+      .header-right .sync-chip + .sync-chip {
+        margin-left: 6px;
+      }
+      .sec-banner.bad {
+        background: #fae9e7;
+        color: var(--red);
+      }
+      .lock-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+        background: #14231fe6;
+      }
+      .lock-box {
+        background: var(--paper);
+        border-radius: 18px;
+        padding: 26px 22px;
+        width: min(520px, 100%);
+        text-align: center;
+        box-shadow: var(--shadow);
+      }
+      .lock-box .lock-icon {
+        font-size: 42px;
+      }
+      .lock-box h2 {
+        margin: 8px 0 10px;
+        color: var(--red);
+        font-size: 20px;
+      }
+      .lock-box .modal-actions {
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .denom-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+        gap: 8px;
+        margin: 8px 0 4px;
+      }
+      .denom-grid label span {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 3px;
+      }
+      details.denoms {
+        margin: 10px 0 4px;
+      }
+      details.denoms summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: var(--green);
+      }
+      .mini-title {
+        margin: 14px 0 6px;
+        font-size: 14px;
+      }
+      .dev-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
     </style>
   </head>
   <body>
@@ -1217,7 +1285,23 @@
           title="Ver estado de sincronización"
         >
           <i></i><span id="syncChipText">Iniciando almacenamiento…</span>
-        </button>
+        </button
+        ><button
+          class="sync-chip"
+          id="shiftChip"
+          type="button"
+          onclick="openShiftModal()"
+          title="Turno de este dispositivo"
+          style="display: none"
+        ></button
+        ><button
+          class="sync-chip"
+          id="secChip"
+          type="button"
+          onclick="openSyncPanel()"
+          title="Seguridad y licencia"
+          style="display: none"
+        ></button>
       </div>
     </header>
     <div class="app">
@@ -1253,6 +1337,7 @@
               </button>
             </div>
           </div>
+          <div id="secBanner" class="cash-banner sec-banner" style="display: none"></div>
           <div id="ventaCashBanner" class="cash-banner" style="display: none"></div>
           <input
             id="search"
@@ -1354,6 +1439,7 @@
               onchange="saveOperatorName(this.value)"
             />
           </div>
+          <div id="myShiftCard" class="set-card" style="display: none"></div>
           <div id="historyFilters" class="history-filters" style="display: none">
             <select id="fDevice" class="field" onchange="setSalesFilter()"></select
             ><select id="fOperator" class="field" onchange="setSalesFilter()"></select
@@ -1462,6 +1548,15 @@
               <select id="cashMoveType" class="field">
                 <option value="in">Ingreso de efectivo</option>
                 <option value="out">Retiro de efectivo</option></select
+              ><select id="cashMoveCat" class="field" title="Categoría del movimiento">
+                <option value="">Sin categoría</option>
+                <option>Cambio / base adicional</option>
+                <option>Retiro a caja fuerte</option>
+                <option>Pago a proveedor</option>
+                <option>Gasto operativo</option>
+                <option>Propinas entregadas</option>
+                <option>Préstamo / anticipo</option>
+                <option>Otro</option></select
               ><input
                 id="cashMoveAmount"
                 class="field"
@@ -1503,17 +1598,41 @@
                 id="cashCloseBtn"
                 onclick="closeCashSession()"
               >
-                Cerrar caja
+                Cerrar caja</button
+              ><button class="btn" id="pcBtn" onclick="openPartialCount()" style="display: none">
+                Arqueo parcial</button
+              ><button class="btn" id="printXBtn" onclick="printCashX()" style="display: none">
+                Imprimir corte X</button
+              ><button class="btn" id="printZBtn" onclick="printCashZ()" style="display: none">
+                Imprimir último cierre (Z)
               </button>
             </div>
             <p class="notice">
               El cierre registra el efectivo contado, el esperado y la
               diferencia. Al cerrar, Bullet POS prepara automáticamente una
-              nueva sesión con la base que indiques.
+              nueva sesión con la base que indiques. El arqueo parcial cuenta
+              el efectivo sin cerrar la caja y queda registrado.
             </p>
+          </div>
+          <div class="set-card" id="shiftsCard" style="display: none">
+            <h3>Turnos de meseros</h3>
+            <div id="shiftsBox" class="notice"></div>
+          </div>
+          <div class="set-card" id="dailyCard">
+            <h3>Cuadre diario</h3>
+            <div class="actions" style="align-items: center; margin-top: 6px">
+              <input id="dailyDate" class="field" type="date" style="max-width: 190px" onchange="renderDaily()" /><button
+                class="btn"
+                onclick="printDaily()"
+              >
+                Imprimir cuadre
+              </button>
+            </div>
+            <div id="dailyReport" class="notice"></div>
           </div>
           <div class="set-card">
             <h3>Historial de cajas</h3>
+            <button class="btn small" id="cashOldToggle" onclick="toggleOldCash()" style="display: none; margin-top: 6px"></button>
             <div id="cashSessionsTable" class="notice"></div>
           </div>
           <div class="set-card">
@@ -1652,6 +1771,74 @@
               Copia ese ID aquí y toca Autorizar. Si tus reglas de Firestore lo
               permiten, el equipo nuevo aparecerá solo en la lista como
               Pendiente.
+            </p>
+            <p class="notice">
+              «Revocar» bloquea el equipo en cuanto se conecta (puede terminar
+              de enviar lo que ya registró si lo permites). «Perdido» lo bloquea
+              sin plazo y, si lo eliges, borra sus datos al conectarse. Si el
+              equipo era PC Main, también pierde ese rol.
+            </p>
+          </div>
+          <div class="set-card" id="licenseCard">
+            <h3>Licencia de Bullet POS</h3>
+            <div id="licenseBox" class="sub">Consultando…</div>
+            <div class="actions" style="margin-top: 10px">
+              <button class="btn" onclick="checkLicenseNow()">Verificar licencia</button>
+            </div>
+            <p class="notice">
+              La licencia la emite el proveedor y queda protegida por las reglas
+              de Firestore: ningún equipo del negocio puede modificarla. Si
+              vence, se bloquean las ventas nuevas, pero el historial, los
+              respaldos, los cierres de caja y el envío de lo ya registrado
+              siguen funcionando.
+            </p>
+          </div>
+          <div class="set-card" id="policyCard" style="display: none">
+            <h3>Seguridad y operación</h3>
+            <div class="form-grid" style="margin-top: 10px">
+              <div>
+                <label for="polSecLease">Secundarios: tiempo máximo sin verificar</label
+                ><select id="polSecLease" class="field"></select>
+              </div>
+              <div>
+                <label for="polMainLease">PC Main: tiempo máximo sin verificar</label
+                ><select id="polMainLease" class="field"></select>
+              </div>
+              <div>
+                <label for="polDiffThr">Observación obligatoria si la diferencia de caja es de (COP)</label
+                ><input id="polDiffThr" class="field" type="number" min="0" step="500" />
+              </div>
+              <div>
+                <label class="tip-check" style="margin-top: 18px"
+                  ><input type="checkbox" id="polShifts" /><span
+                    >Turno obligatorio para vender en equipos secundarios</span
+                  ></label
+                >
+              </div>
+            </div>
+            <button class="btn primary" style="margin-top: 10px" onclick="savePolicyForm()">
+              Guardar política
+            </button>
+            <p class="notice">
+              Sin conexión, cada equipo puede vender durante el tiempo indicado
+              desde su última verificación con el servidor; después debe
+              conectarse. Los cobros de mesas ya abiertas siempre se pueden
+              terminar. Se aplica a todos los dispositivos y queda en la
+              auditoría.
+            </p>
+          </div>
+          <div class="set-card" id="resetCard" style="display: none">
+            <h3>Reinicio global de historial</h3>
+            <div id="resetBox" class="sub"></div>
+            <button class="btn danger" style="margin-top: 10px" onclick="openHistoryReset()">
+              Reiniciar historial…
+            </button>
+            <p class="notice">
+              Empieza un periodo nuevo en todos los dispositivos. No se borra
+              ninguna venta: las anteriores quedan archivadas en Firebase y en
+              los respaldos, y antes se descargan un JSON y un Excel completos.
+              Requiere conexión, caja recién abierta sin ventas, sin mesas
+              abiertas y sin operaciones pendientes en este equipo.
             </p>
           </div>
           <div class="set-card">
@@ -1997,6 +2184,10 @@
         <h2>Cerrar caja</h2>
         <div id="closeWarnings"></div>
         <div id="closeBreakdown" class="cash-breakdown"></div>
+        <details class="denoms" id="closeDenoms">
+          <summary>Contar por denominaciones (opcional)</summary>
+          <div id="closeDenomGrid"></div>
+        </details>
         <label class="lbl" for="closeCounted">Efectivo contado (COP)</label
         ><input
           id="closeCounted"
@@ -2037,6 +2228,7 @@
         <div id="closeOtherDiff" class="notice"></div>
         <label class="lbl" for="closeNotes">Observaciones del cierre</label
         ><input id="closeNotes" class="field" maxlength="200" />
+        <div class="sub" id="closeNoteHint"></div>
         <div class="split-row">
           <div>
             <label class="lbl" for="closeNextBase"
@@ -2184,6 +2376,84 @@
         </div>
       </div>
     </div>
+    <div class="modal-back" id="shiftModal">
+      <div class="modal">
+        <h2 id="shiftModalTitle">Turno</h2>
+        <div id="shiftModalBody"></div>
+        <div class="modal-actions" id="shiftModalActions"></div>
+      </div>
+    </div>
+    <div class="modal-back" id="partialCountModal">
+      <div class="modal modal-wide">
+        <h2>Arqueo parcial (corte X)</h2>
+        <p class="sub">
+          Cuenta el efectivo sin cerrar la caja. Queda registrado con el efectivo
+          esperado en este momento.
+        </p>
+        <div id="pcBreakdown" class="cash-breakdown"></div>
+        <details class="denoms" open>
+          <summary>Contar por denominaciones</summary>
+          <div id="pcDenoms"></div>
+        </details>
+        <label class="lbl" for="pcCounted">Efectivo contado (COP)</label
+        ><input
+          id="pcCounted"
+          class="field"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          oninput="renderPartialDiff()"
+        />
+        <div id="pcDiff" class="change-line muted"></div>
+        <label class="lbl" for="pcNote">Observación (opcional)</label
+        ><input id="pcNote" class="field" maxlength="160" />
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('partialCountModal')">
+            Cancelar</button
+          ><button class="btn primary" id="pcConfirm" onclick="confirmPartialCount()">
+            Registrar arqueo
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="resetModal">
+      <div class="modal modal-wide">
+        <h2>Reinicio global de historial</h2>
+        <div id="resetInfo"></div>
+        <label class="lbl" for="resetNote">Motivo u observación</label
+        ><input
+          id="resetNote"
+          class="field"
+          maxlength="160"
+          placeholder="Ej. Inicio de Bullet POS 2.0"
+        /><label class="lbl" for="resetConfirmText"
+          >Escribe REINICIAR para confirmar</label
+        ><input id="resetConfirmText" class="field" maxlength="20" autocomplete="off" />
+        <p class="notice">
+          Se descargan primero un respaldo JSON y un Excel completos (permite las
+          descargas múltiples si el navegador lo pregunta). Después, en todos los
+          dispositivos, el historial activo empieza vacío. Las ventas anteriores
+          no se borran: quedan archivadas en Firebase, en este equipo y en los
+          respaldos. La auditoría y los cierres de caja se conservan.
+        </p>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('resetModal')">Cancelar</button
+          ><button class="btn danger" id="resetConfirmBtn" onclick="confirmHistoryReset()">
+            Descargar copias y reiniciar
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="lock-screen" id="deviceLockScreen">
+      <div class="lock-box">
+        <div class="lock-icon">🔒</div>
+        <h2 id="lockTitle"></h2>
+        <p id="lockText"></p>
+        <div class="dev-id" id="lockDevice"></div>
+        <div class="notice" id="lockExtra"></div>
+        <div class="modal-actions" id="lockActions"></div>
+      </div>
+    </div>
     <input id="fileFallback" type="file" accept=".csv" hidden /><input
       id="backupFile"
       type="file"
@@ -2246,8 +2516,8 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "1.9.0",
-        APP_BUILD = "2026-11-20";
+        APP_VERSION = "2.0.0",
+        APP_BUILD = "2026-11-21";
       let received = "",
         rcSale = null,
         voidingId = null,
@@ -2888,6 +3158,14 @@
               wb,
               XLSX.utils.json_to_sheet(cx.movements, { header: MOVES_SHEET_COLS }),
               "Movimientos de Caja",
+            );
+            // 2.0.0: Turnos, Cuadre diario y Arqueos parciales.
+            (cx.extraSheets || []).forEach(([name, rows, header]) =>
+              XLSX.utils.book_append_sheet(
+                wb,
+                XLSX.utils.json_to_sheet(rows, header ? { header } : undefined),
+                name,
+              ),
             );
           }
           XLSX.writeFile(wb, "bullet-pos_" + stamp() + ".xlsx");
@@ -5531,8 +5809,9 @@
         setTimeout(() => {
           let m = gid(modalId),
             a = document.activeElement;
-          if (m && m.classList.contains("show") && !(a && a !== document.body && m.contains(a)))
-            gid(fieldId).focus();
+          let f = gid(fieldId);
+          if (f && m && m.classList.contains("show") && !(a && a !== document.body && m.contains(a)))
+            f.focus();
         }, 50);
       }
       function diffInfo(d) {
@@ -5646,6 +5925,8 @@
               forced: !!(check.issues.length || check.localPending > 0),
               devices: check.rows,
             },
+            // 2.0.0: conteo por denominaciones y turnos abiertos al cierre.
+            ...(typeof cashCloseExtras200 === "function" ? cashCloseExtras200() : {}),
           };
         let next = {
           id: makeId(),
@@ -5752,6 +6033,8 @@
           deviceId: syncUser?.uid || "local",
           deviceName: BulletSupervision.myName(),
           operator: operatorName() || null,
+          // 2.0.0: categoría del movimiento (caja fuerte, proveedor, gasto…).
+          category: (gid("cashMoveCat") && gid("cashMoveCat").value) || null,
           syncState: "pending",
         };
         cashMovements.unshift(m);
@@ -10442,7 +10725,7 @@
                   "</td><td>" +
                   (m.type === "in" ? "Ingreso" : "Salida") +
                   "</td><td>" +
-                  esc(m.reason) +
+                  esc((m.category ? m.category + " · " : "") + m.reason) +
                   (m.edits && m.edits.length ? '<div class="correction-log">Editado ' + m.edits.length + " vez/veces</div>" : "") +
                   "</td><td>" +
                   (m.type === "in" ? "" : "-") +
@@ -10459,7 +10742,8 @@
             "</tbody></table></div>"
           : "Sin movimientos adicionales.";
         // Historial de cajas.
-        let rows = allCashSessions().slice(0, 60).map(sessionSummary);
+        // 2.0.0: tras un reinicio global se muestran las cajas del periodo actual.
+        let rows = visibleCashSessions().slice(0, 60).map(sessionSummary);
         gid("cashSessionsTable").innerHTML = rows.length
           ? '<div class="table-wrap"><table class="cash-table"><thead><tr><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Abrió</th><th>Cerró</th><th>Base</th><th>Ventas</th><th>Propinas</th><th>Ingresos</th><th>Salidas</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody>' +
             rows
@@ -10533,7 +10817,7 @@
         "Responsable apertura",
         "Responsable cierre",
       ];
-      const MOVES_SHEET_COLS = ["Fecha", "Hora", "Tipo", "Motivo", "Valor", "Usuario"];
+      const MOVES_SHEET_COLS = ["Fecha", "Hora", "Tipo", "Categoría", "Motivo", "Valor", "Usuario"];
       async function allCashMovements() {
         let m = new Map();
         try {
@@ -10581,6 +10865,7 @@
               Fecha: ok ? d.toLocaleDateString("es-CO") : "No disponible",
               Hora: ok ? d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : "No disponible",
               Tipo: m.type === "in" ? "Ingreso" : "Salida",
+              Categoría: m.category || "Sin categoría",
               Motivo: String(m.reason || "") + (m.edits && m.edits.length ? " (editado)" : ""),
               Valor: (m.type === "in" ? 1 : -1) * (Number(m.amount) || 0),
               Usuario: personLabel(m.deviceId, m.deviceName, m.operator),
@@ -10722,6 +11007,2776 @@
         if (bk) bk.style.display = isRestrictedDevice() ? "none" : "";
         renderVentaCashBanner();
       };
+      // ===== Bullet POS 2.0.0: seguridad de dispositivos, turnos, licencias, reinicio global y caja profesional =====
+      // Se conserva todo lo de 1.9.0. Igual que en las versiones anteriores,
+      // este bloque agrega funciones nuevas y envuelve las existentes:
+      //  1. Reinicio global de historial (época compartida; nunca borra ventas).
+      //  2. Turnos de los dispositivos secundarios (offline, cola persistente).
+      //  3. Revocación remota: el equipo se bloquea y, si se permite, termina
+      //     de enviar lo que ya registró.
+      //  4. Dispositivo perdido: bloqueo inmediato y borrado remoto opcional.
+      //  5-6. Licencia firmada por el proveedor, ligada al negocio y al origen.
+      //  7. Seguridad offline controlada: plazo máximo sin verificar con el servidor.
+      //  8. Caja profesional: denominaciones, arqueo parcial, cuadre diario, reportes X/Z.
+      const SEC_KEY = "bullet_sec_v2",
+        SHIFT_KEY = "bullet_shift_current_v2",
+        V2_CAFE = String((window.POS_CONFIG && window.POS_CONFIG.cafeId) || "local"),
+        V2_IDB_NAME = "bullet_pos_" + V2_CAFE;
+      // Claves públicas del emisor de licencias (ECDSA P-256 en formato JWK),
+      // indexadas por keyId. Se generan con herramientas/emisor-licencias.html.
+      // Vacío: la licencia se acepta solo si la entrega el servidor (documento
+      // licenses/{cafeId}, que únicamente el proveedor puede escribir).
+      const LICENSE_PUBLIC_KEYS = {};
+      const DEFAULT_POLICY = {
+        requireShifts: true,
+        secondaryLeaseHours: 72,
+        mainLeaseHours: 168,
+        diffNoteThreshold: 5000,
+      };
+      const LEASE_OPTIONS = [24, 48, 72, 168, 336, 720];
+      const DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
+      const dayKey = (v) => {
+        let d = new Date(v);
+        return v && Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-CA") : "";
+      };
+
+      // --- Estado de seguridad del equipo (localStorage + copia en IndexedDB) ---
+      // Un bloqueo no se quita borrando solo localStorage: IndexedDB conserva la
+      // copia. Borrar todos los datos del sitio también borra la identidad del
+      // equipo en Firebase, que entonces queda como un equipo nuevo sin autorizar.
+      const SEC_HAD_LS = (function () {
+        try {
+          return !!localStorage.getItem(SEC_KEY);
+        } catch (e) {
+          return false;
+        }
+      })();
+      let secState = (function () {
+        let s = null;
+        try {
+          s = JSON.parse(localStorage.getItem(SEC_KEY) || "null");
+        } catch (e) {}
+        s = s && typeof s === "object" && !Array.isArray(s) ? s : {};
+        if (!s.installId) {
+          s.installId = makeId();
+          s.installCreatedAt = Date.now();
+        }
+        s.maxClock = Number(s.maxClock) || 0;
+        return s;
+      })();
+      let secMerged = false;
+      function saveSec() {
+        try {
+          localStorage.setItem(SEC_KEY, JSON.stringify(secState));
+        } catch (e) {}
+        if (secMerged && BulletStore.loaded && !window.__v2Wiping)
+          BulletStore.putMeta("security", secState).catch(() => {});
+      }
+      // Hora efectiva: nunca retrocede (atrasar el reloj no alarga los plazos).
+      function secNow() {
+        return Math.max(Date.now(), Number(secState.maxClock) || 0);
+      }
+      function clockTick() {
+        let now = Date.now(),
+          max = Number(secState.maxClock) || 0;
+        if (max && now < max - 10 * 60000) {
+          if (!secState.clockRollbackNotified) {
+            secState.clockRollbackNotified = true;
+            BulletAudit.record("clockRollback", {
+              deviceTime: new Date(now).toISOString(),
+              lastKnown: new Date(max).toISOString(),
+            });
+          }
+        } else if (now > max) secState.maxClock = now;
+        saveSec();
+      }
+
+      // --- Política compartida (control/policy) ---
+      function posPolicy() {
+        let p = { ...DEFAULT_POLICY, ...((data.settings && data.settings.policy) || {}) };
+        p.secondaryLeaseHours = Math.max(1, Number(p.secondaryLeaseHours) || DEFAULT_POLICY.secondaryLeaseHours);
+        p.mainLeaseHours = Math.max(1, Number(p.mainLeaseHours) || DEFAULT_POLICY.mainLeaseHours);
+        p.diffNoteThreshold = Math.max(0, Number(p.diffNoteThreshold) || 0);
+        p.requireShifts = p.requireShifts !== false;
+        return p;
+      }
+      function opPending(opId) {
+        return ((BulletSync.stats().ops || [])).some((o) => o.opId === opId);
+      }
+      async function savePolicyForm() {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede cambiar la política");
+          return;
+        }
+        let sec = Number(gid("polSecLease").value),
+          main = Number(gid("polMainLease").value),
+          thr = Number(gid("polDiffThr").value),
+          req = gid("polShifts").checked;
+        if (!LEASE_OPTIONS.includes(sec) || !LEASE_OPTIONS.includes(main) || !Number.isFinite(thr) || thr < 0) {
+          toast("Revisa los valores de la política");
+          return;
+        }
+        let before = posPolicy(),
+          after = { requireShifts: req, secondaryLeaseHours: sec, mainLeaseHours: main, diffNoteThreshold: Math.round(thr) };
+        if (
+          before.requireShifts === after.requireShifts &&
+          before.secondaryLeaseHours === after.secondaryLeaseHours &&
+          before.mainLeaseHours === after.mainLeaseHours &&
+          before.diffNoteThreshold === after.diffNoteThreshold
+        ) {
+          toast("Sin cambios");
+          return;
+        }
+        if (!(await requireMainPassword("cambiar la política de seguridad"))) {
+          renderPolicyForm();
+          return;
+        }
+        let cfg = { ...after, updatedAt: Date.now(), updatedBy: currentDeviceId() };
+        data.settings.policy = cfg;
+        persist();
+        if (firebaseConfigured()) await BulletSync.enqueueDoc("control", "policy", cfg, { kind: "business" });
+        const lbl = (p) =>
+          "turnos " + (p.requireShifts ? "obligatorios" : "opcionales") + ", offline secundarios " + p.secondaryLeaseHours + " h, offline Main " + p.mainLeaseHours + " h, observación desde " + money(p.diffNoteThreshold);
+        BulletAudit.record("policyChanged", { setting: "política de seguridad y operación", before: lbl(before), after: lbl(after) });
+        renderSecurityUI();
+        toast("Política actualizada en todos los dispositivos");
+      }
+      function renderPolicyForm() {
+        if (!gid("polSecLease")) return;
+        let p = posPolicy(),
+          main = deviceIsMain(),
+          opts = (v) => LEASE_OPTIONS.map((h) => '<option value="' + h + '"' + (h === v ? " selected" : "") + ">" + (h < 48 ? h + " horas" : h / 24 + " días") + "</option>").join("");
+        if (document.activeElement && gid("policyCard") && gid("policyCard").contains(document.activeElement)) return;
+        gid("polSecLease").innerHTML = opts(p.secondaryLeaseHours);
+        gid("polMainLease").innerHTML = opts(p.mainLeaseHours);
+        gid("polDiffThr").value = String(p.diffNoteThreshold);
+        gid("polShifts").checked = p.requireShifts;
+        gid("policyCard").querySelectorAll("input,select,button").forEach((x) => (x.disabled = !main));
+      }
+
+      // --- Seguridad offline controlada: plazo desde la última verificación ---
+      function leaseHours() {
+        let p = posPolicy();
+        return deviceIsMain() ? p.mainLeaseHours : p.secondaryLeaseHours;
+      }
+      function leaseInfo() {
+        if (!firebaseConfigured()) return { applies: false, ok: true };
+        if (!secMerged) return { applies: true, ok: true, loading: true };
+        let at = Number(secState.lastVerifiedAt) || 0;
+        if (!at) return { applies: true, ok: false, never: true };
+        let until = at + leaseHours() * 3600000,
+          left = until - secNow();
+        return { applies: true, ok: left > 0, at, until, left };
+      }
+      function leftText(ms) {
+        let h = Math.floor(ms / 3600000);
+        if (h >= 48) return Math.floor(h / 24) + " días";
+        if (h >= 1) return h + " h " + Math.floor((ms % 3600000) / 60000) + " min";
+        return Math.max(0, Math.floor(ms / 60000)) + " min";
+      }
+      async function verifyDeviceOnline(reason) {
+        secState.lastVerifyTry = Date.now();
+        if (!firebaseConfigured() || !syncDb || !syncUser || navigator.onLine === false) return false;
+        try {
+          let s = await withTimeout(devicesRef().doc(syncUser.uid).get({ source: "server" }), 10000);
+          handleOwnDeviceDoc(s, true);
+          return !!(s.exists && s.data().active === true);
+        } catch (e) {
+          return false;
+        } finally {
+          saveSec();
+        }
+      }
+      async function checkAuthorizationNow() {
+        if (!firebaseConfigured()) {
+          toast("Firebase no está configurado: no hay nada que verificar");
+          return;
+        }
+        if (navigator.onLine === false) {
+          toast("Sin conexión: conéctate a internet para verificar");
+          return;
+        }
+        if (!syncUser) {
+          toast("Conectando con Firebase…");
+          await startCloudSync();
+        }
+        let ok = await verifyDeviceOnline("manual");
+        toast(ok ? "Autorización verificada con el servidor" : secState.lock ? lockTitle(secState.lock) : "No se pudo verificar: el equipo no está autorizado o no hay respuesta del servidor");
+        renderSecurityUI();
+        if (gid("syncModal") && gid("syncModal").classList.contains("show")) renderSyncPanel();
+      }
+
+      // --- Revocación, dispositivo perdido e instalación (lado del equipo) ---
+      function lockTitle(l) {
+        if (!l) return "";
+        if (l.state === "lost") return l.wiped ? "Equipo reportado como perdido · datos locales borrados" : "Este equipo fue reportado como perdido";
+        if (l.state === "clone") return "Instalación no reconocida: este equipo usa la identidad de otra instalación";
+        return "Este equipo fue revocado por el PC Main";
+      }
+      let ownDevUnsub = null;
+      function watchOwnDevice() {
+        if (ownDevUnsub || !syncDb || !syncUser) return;
+        try {
+          ownDevUnsub = devicesRef()
+            .doc(syncUser.uid)
+            .onSnapshot(
+              (s) => handleOwnDeviceDoc(s, !s.metadata.fromCache),
+              () => {
+                ownDevUnsub = null;
+              },
+            );
+        } catch (e) {
+          ownDevUnsub = null;
+        }
+      }
+      function handleOwnDeviceDoc(snap, fromServer) {
+        if (!snap || !snap.exists) return;
+        let d = snap.data() || {};
+        if (d.lost === true) {
+          setLock("lost", {
+            at: tsMs(d.lostAt) || Date.now(),
+            reason: d.lostReason || "",
+            wipe: !!d.wipeRequested,
+          });
+        } else if (d.active === true) {
+          if (fromServer) {
+            secState.lastVerifiedAt = Date.now();
+            secState.maxClock = Date.now();
+            secState.clockRollbackNotified = false;
+            secState.leaseExpiredNotified = false;
+          }
+          if (d.installId && d.installId !== secState.installId) {
+            if (fromServer) setLock("clone", { at: Date.now(), reason: "El servidor tiene registrada otra instalación para este equipo" });
+          } else {
+            if (!d.installId && fromServer) bindInstall();
+            if (secState.lock && fromServer && !secState.lock.wiped) clearLock();
+          }
+        } else if (d.active === false && d.revokedAt) {
+          setLock("revoked", {
+            at: tsMs(d.revokedAt) || Date.now(),
+            reason: d.revokeReason || "",
+            drainUntil: tsMs(d.drainUntil) || 0,
+          });
+        }
+        saveSec();
+        renderSecurityUI();
+      }
+      function bindInstall() {
+        if (!syncDb || !syncUser || window.__v2Binding) return;
+        window.__v2Binding = true;
+        devicesRef()
+          .doc(syncUser.uid)
+          .set({ installId: secState.installId, installBoundAt: Date.now() }, { merge: true })
+          .catch((e) => console.warn("Vinculación de instalación:", e && (e.code || e.message)))
+          .finally(() => (window.__v2Binding = false));
+      }
+      function setLock(state, info) {
+        let prev = secState.lock,
+          same = !!(prev && prev.state === state);
+        secState.lock = { ...(same ? prev : {}), ...info, state, seenAt: (same && prev.seenAt) || Date.now() };
+        saveSec();
+        if (!same) {
+          BulletAudit.record("deviceLocked", { lockState: state, reason: info.reason || "", deviceId: currentDeviceId() });
+          if (syncDb && syncUser && state !== "clone")
+            devicesRef()
+              .doc(syncUser.uid)
+              .set({ lockSeenAt: Date.now() }, { merge: true })
+              .catch(() => {});
+          BulletSupervision.report(true);
+        }
+        enforceLock();
+      }
+      function clearLock() {
+        let prev = secState.lock;
+        if (!prev) return;
+        secState.lock = null;
+        saveSec();
+        BulletAudit.record("deviceUnlocked", { lockState: prev.state, deviceId: currentDeviceId() });
+        renderSecurityUI();
+        if (prev.state !== "clone") {
+          toast("Este equipo fue autorizado de nuevo. Reiniciando la sincronización…");
+          setTimeout(() => location.reload(), 1500);
+        }
+      }
+      function startDrain() {
+        let l = secState.lock;
+        if (!l || l.state !== "revoked" || !(Number(l.drainUntil) > Date.now())) return;
+        if (!syncDb || !syncUser || (syncReady && deviceApproved)) return;
+        window.__salesScope = "own";
+        window.__v2Drain = true;
+        deviceApproved = true;
+        syncReady = true;
+        BulletSync.kick("envio-pendientes");
+        BulletSupervision.report(true);
+      }
+      function enforceLock() {
+        renderLockScreen();
+        let l = secState.lock;
+        if (!l) return;
+        if (l.state === "lost") {
+          deviceApproved = false;
+          window.__v2Drain = false;
+          if (l.wipe && !l.wiped) performWipe();
+        } else if (l.state === "revoked") {
+          if (Number(l.drainUntil) > Date.now()) startDrain();
+          else {
+            deviceApproved = false;
+            window.__v2Drain = false;
+          }
+        }
+      }
+      // Borrado remoto (solo si el PC Main lo pidió al reportar el equipo
+      // como perdido). Se conserva únicamente la marca de bloqueo.
+      async function performWipe() {
+        if (window.__v2Wiping) return;
+        window.__v2Wiping = true;
+        renderLockScreen();
+        try {
+          if (syncDb && syncUser)
+            await withTimeout(devicesRef().doc(syncUser.uid).set({ wipedAt: Date.now() }, { merge: true }), 8000);
+        } catch (e) {}
+        secState.lock = { ...(secState.lock || { state: "lost" }), wiped: true, wipedAt: Date.now() };
+        let keep = JSON.stringify({
+          installId: secState.installId,
+          installCreatedAt: secState.installCreatedAt,
+          lock: secState.lock,
+          v2init: secState.v2init,
+          maxClock: secState.maxClock,
+        });
+        window.__lsWrite = false;
+        try {
+          if (syncAuth) await withTimeout(syncAuth.signOut(), 5000);
+        } catch (e) {}
+        try {
+          if (syncDb) {
+            await withTimeout(syncDb.terminate(), 5000);
+            await withTimeout(syncDb.clearPersistence(), 5000);
+          }
+        } catch (e) {}
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+        } catch (e) {}
+        try {
+          localStorage.setItem(SEC_KEY, keep);
+        } catch (e) {}
+        const delDb = (n) =>
+          new Promise((res) => {
+            try {
+              let r = indexedDB.deleteDatabase(n);
+              r.onsuccess = r.onerror = r.onblocked = () => res();
+            } catch (e) {
+              res();
+            }
+            setTimeout(res, 4000);
+          });
+        await delDb(V2_IDB_NAME);
+        await delDb("firebaseLocalStorageDb");
+        data = { products: [], sales: [], settings: {}, tables: {} };
+        location.reload();
+      }
+      function resetWipedDevice() {
+        if (!secState.lock || !secState.lock.wiped) return;
+        if (!confirm("Este equipo ya no tiene datos del negocio. ¿Prepararlo como un equipo nuevo? Tendrá que ser autorizado otra vez por el PC Main."))
+          return;
+        try {
+          localStorage.removeItem(SEC_KEY);
+        } catch (e) {}
+        location.reload();
+      }
+      function copyLockDeviceId() {
+        let id = currentDeviceId();
+        if (navigator.clipboard && navigator.clipboard.writeText)
+          navigator.clipboard.writeText(id).then(
+            () => toast("ID copiado"),
+            () => toast(id),
+          );
+        else toast(id);
+      }
+      function renderLockScreen() {
+        let el = gid("deviceLockScreen");
+        if (!el) return;
+        let l = secState.lock;
+        el.style.display = l ? "flex" : "none";
+        if (!l) return;
+        let st = BulletSync.stats(),
+          pend = (st.pendingOps || 0) + (st.syncingOps || 0) + (st.errorOps || 0),
+          txt = "",
+          extra = "";
+        if (l.state === "lost") {
+          txt = l.wiped
+            ? "El PC Main reportó este equipo como perdido y pidió borrar sus datos. Los datos del negocio ya no están en este dispositivo."
+            : window.__v2Wiping
+              ? "Borrando los datos del negocio de este dispositivo…"
+              : "El PC Main reportó este equipo como perdido. No se puede usar para vender ni consultar información.";
+        } else if (l.state === "clone") {
+          txt =
+            "La identidad de este equipo está registrada para otra instalación. Puede tratarse de una copia del navegador o de datos restaurados. Pide al PC Main que revise el equipo en Ajustes > Dispositivos («Reconocer instalación»).";
+        } else {
+          let drain = Number(l.drainUntil) > Date.now();
+          txt =
+            "El PC Main retiró la autorización de este equipo: ya no puede registrar ventas ni modificar mesas." +
+            (drain
+              ? " Mientras tanto puede terminar de enviar lo que ya registró (hasta el " + fmtDT(l.drainUntil) + ")."
+              : pend
+                ? " Las operaciones pendientes se conservan en este equipo; el PC Main puede permitir su envío."
+                : "");
+        }
+        if (l.state !== "lost") extra = pend ? pend + " operación(es) pendientes de enviar en este equipo." : "No quedan operaciones pendientes en este equipo.";
+        if (l.reason) extra += (extra ? " · " : "") + "Motivo: " + l.reason;
+        gid("lockTitle").textContent = lockTitle(l);
+        gid("lockText").textContent = txt;
+        gid("lockDevice").textContent = "ID del equipo: " + currentDeviceId() + " · instalación " + String(secState.installId).slice(0, 8);
+        gid("lockExtra").textContent = extra;
+        gid("lockActions").innerHTML =
+          (l.wiped
+            ? '<button class="btn" onclick="resetWipedDevice()">Preparar como equipo nuevo</button>'
+            : '<button class="btn" onclick="copyLockDeviceId()">Copiar ID</button><button class="btn" onclick="location.reload()">Verificar de nuevo</button>') +
+          '<button class="btn primary" onclick="contactSupport()">Escribir a soporte</button>';
+      }
+
+      // --- Revocación y dispositivo perdido (lado del PC Main) ---
+      let v2Status = new Map();
+      function v2DeviceName(id) {
+        let d = devicesList.find((x) => x.id === id);
+        return (d && d.name) || "Equipo " + String(id).slice(0, 6);
+      }
+      function v2NeedOnlineMain(what) {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede " + what);
+          return false;
+        }
+        if (!syncReady || !deviceApproved || navigator.onLine === false) {
+          toast("Conéctate a internet para " + what);
+          return false;
+        }
+        return true;
+      }
+      async function v2DeviceWrite(id, upd) {
+        let ids = mainIds(),
+          wasMain = ids.includes(id),
+          rest = ids.filter((x) => x !== id),
+          b = syncDb.batch();
+        if (wasMain) upd.role = "cashier";
+        b.set(devicesRef().doc(id), upd, { merge: true });
+        if (wasMain) b.set(adminRef(), { mainDeviceIds: rest, mainDeviceId: rest[0], updatedAt: Date.now() }, { merge: true });
+        await withTimeout(b.commit(), 15000);
+        if (wasMain) {
+          BulletAudit.record("mainRevoked", { deviceId: id, mainDeviceIds: rest });
+          await loadAdminConfig();
+        }
+        return wasMain;
+      }
+      revokeDevice = async function (id) {
+        id = String(id || "");
+        if (!v2NeedOnlineMain("revocar dispositivos")) return;
+        if (syncUser && id === syncUser.uid) {
+          toast("No puedes revocar este mismo equipo");
+          return;
+        }
+        if (!(await requireMainPassword("revocar un dispositivo"))) return;
+        let name = v2DeviceName(id),
+          reason = prompt("Motivo para revocar «" + name + "»:", "");
+        if (reason === null) return;
+        reason = reason.trim().slice(0, 160);
+        if (!reason) {
+          toast("Escribe el motivo de la revocación");
+          return;
+        }
+        let st = v2Status.get(id),
+          pend = st && st.pendingSales != null ? Number(st.pendingSales) || 0 : null,
+          drain = confirm(
+            "¿Permitir que «" +
+              name +
+              "» termine de enviar sus ventas pendientes durante 24 horas?\n\n" +
+              (pend == null ? "No hay un reporte reciente de sus ventas pendientes." : "Último reporte: " + pend + " venta(s) pendientes.") +
+              "\n\nAceptar: el equipo queda bloqueado para vender, pero envía lo que ya registró (recomendado).\nCancelar: bloqueo total inmediato.",
+          );
+        let upd = {
+          active: false,
+          revokedAt: Date.now(),
+          revokedBy: syncUser.uid,
+          revokedByName: BulletSupervision.myName(),
+          revokeReason: reason,
+          lost: false,
+          drainUntil: drain ? firebase.firestore.Timestamp.fromMillis(Date.now() + 24 * 3600000) : null,
+        };
+        try {
+          await v2DeviceWrite(id, upd);
+        } catch (e) {
+          toast(devErrMsg(e));
+          return;
+        }
+        BulletAudit.record("deviceRevoked", { deviceId: id, reason, drainHours: drain ? 24 : 0 });
+        renderDevices();
+        toast("Dispositivo revocado" + (drain ? " · puede enviar sus pendientes durante 24 h" : ""));
+      };
+      async function markDeviceLost(id) {
+        id = String(id || "");
+        if (!v2NeedOnlineMain("reportar un dispositivo perdido")) return;
+        if (syncUser && id === syncUser.uid) {
+          toast("No puedes reportar como perdido este mismo equipo");
+          return;
+        }
+        if (!(await requireMainPassword("reportar un dispositivo perdido"))) return;
+        let name = v2DeviceName(id),
+          reason = prompt("Dispositivo perdido o robado: «" + name + "»\n\nDescribe qué pasó (queda en la auditoría):", "");
+        if (reason === null) return;
+        reason = reason.trim().slice(0, 160);
+        if (!reason) {
+          toast("Escribe qué pasó con el equipo");
+          return;
+        }
+        let st = v2Status.get(id),
+          pend = st && st.pendingSales != null ? Number(st.pendingSales) || 0 : null,
+          wipe = confirm(
+            "¿Borrar los datos del negocio de «" +
+              name +
+              "» cuando vuelva a conectarse?\n\n" +
+              (pend == null
+                ? "No hay un reporte reciente de sus ventas pendientes."
+                : pend
+                  ? "⚠ Último reporte: " + pend + " venta(s) SIN enviar. Si borras, esas ventas se pierden."
+                  : "Último reporte: sin ventas pendientes.") +
+              "\n\nAceptar: bloquear y borrar.\nCancelar: solo bloquear (los datos quedan en el equipo, inaccesibles).",
+          );
+        let wasMain;
+        try {
+          wasMain = await v2DeviceWrite(id, {
+            active: false,
+            lost: true,
+            lostAt: Date.now(),
+            lostBy: syncUser.uid,
+            lostByName: BulletSupervision.myName(),
+            lostReason: reason,
+            wipeRequested: wipe,
+            revokedAt: Date.now(),
+            revokedBy: syncUser.uid,
+            revokeReason: "Dispositivo perdido: " + reason,
+            drainUntil: null,
+          });
+        } catch (e) {
+          toast(devErrMsg(e));
+          return;
+        }
+        BulletAudit.record("deviceLost", { deviceId: id, reason, wipe, lastPending: pend });
+        renderDevices();
+        toast("Dispositivo bloqueado como perdido" + (wipe ? " · se borrará al conectarse" : ""));
+        if (wasMain && confirm("El equipo perdido era PC Main y tenía la contraseña administrativa en caché.\n¿Cambiar ahora la contraseña administrativa? (recomendado)"))
+          changeAdminPassword();
+      }
+      async function extendDrain(id) {
+        if (!v2NeedOnlineMain("ampliar el plazo de envío")) return;
+        if (!(await requireMainPassword("permitir el envío de pendientes"))) return;
+        try {
+          await withTimeout(
+            devicesRef()
+              .doc(String(id))
+              .set({ drainUntil: firebase.firestore.Timestamp.fromMillis(Date.now() + 24 * 3600000) }, { merge: true }),
+            15000,
+          );
+        } catch (e) {
+          toast(devErrMsg(e));
+          return;
+        }
+        BulletAudit.record("deviceDrainExtended", { deviceId: id, drainHours: 24 });
+        toast("El equipo puede enviar sus pendientes durante 24 h (sigue bloqueado para vender)");
+      }
+      async function resetInstall(id) {
+        if (!v2NeedOnlineMain("reconocer una instalación")) return;
+        if (
+          !confirm(
+            "¿Reconocer la instalación actual de «" +
+              v2DeviceName(id) +
+              "»?\n\nÚsalo solo si el equipo es tuyo y se reinstaló o restauró. La próxima instalación que se conecte con este ID quedará vinculada.",
+          )
+        )
+          return;
+        if (!(await requireMainPassword("reconocer una instalación"))) return;
+        try {
+          await withTimeout(
+            devicesRef()
+              .doc(String(id))
+              .set(
+                { installId: firebase.firestore.FieldValue.delete(), installResetAt: Date.now(), installResetBy: syncUser.uid },
+                { merge: true },
+              ),
+            15000,
+          );
+        } catch (e) {
+          toast(devErrMsg(e));
+          return;
+        }
+        BulletAudit.record("deviceInstallReset", { deviceId: id });
+        toast("Instalación reconocida");
+      }
+      function licenseMaxDevices() {
+        return licenseDoc && Number(licenseDoc.maxDevices) > 0 ? Number(licenseDoc.maxDevices) : 0;
+      }
+      authorizeDevice = function (id, name) {
+        if (!deviceIsMain()) {
+          toast("Solo el PC Main puede autorizar dispositivos");
+          return;
+        }
+        if (!syncReady || !deviceApproved) {
+          toast("Activa la sincronización en este equipo primero");
+          return;
+        }
+        let n = String(id || "").trim();
+        if (!n) {
+          toast("Escribe el ID del dispositivo");
+          return;
+        }
+        let lic = licenseState();
+        if (lic.block) {
+          toast("Licencia: " + lic.label + ". No se pueden autorizar dispositivos.");
+          return;
+        }
+        let max = licenseMaxDevices(),
+          active = devicesList.filter((d) => d.active === true && d.id !== n).length;
+        if (max && active >= max) {
+          BulletAudit.record("deviceLimitReached", { deviceId: n, max });
+          alert("La licencia permite " + max + " dispositivos activos y ya hay " + active + ".\nRevoca uno antes de autorizar otro o amplía la licencia con soporte.");
+          return;
+        }
+        let prev = devicesList.find((d) => d.id === n),
+          d = {
+            active: true,
+            role: "cashier",
+            approvedAt: Date.now(),
+            approvedBy: syncUser.uid,
+            lost: false,
+            wipeRequested: false,
+            drainUntil: null,
+          };
+        if (name) d.name = String(name).trim();
+        devicesRef()
+          .doc(n)
+          .set(d, { merge: true })
+          .then(() => {
+            if (prev && (prev.revokedAt || prev.lost)) {
+              BulletAudit.record("deviceReauthorized", { deviceId: n });
+              toast("Dispositivo autorizado de nuevo");
+            } else toast("Dispositivo secundario autorizado");
+          })
+          .catch((e) => toast(devErrMsg(e)));
+      };
+      // Lista de dispositivos del PC Main con estado de bloqueo, turno e instalación.
+      const _renderDevices200 = renderDevices;
+      renderDevices = function () {
+        _renderDevices200();
+        let box = gid("devRows");
+        if (!box || !syncReady || !deviceApproved || devErr || !devicesList.length || !deviceIsMain()) return;
+        let me = syncUser ? syncUser.uid : "",
+          max = licenseMaxDevices(),
+          activeN = devicesList.filter((d) => d.active === true).length,
+          list = devicesList
+            .slice()
+            .sort((a, b) => (b.active === true) - (a.active === true) || String(a.name || a.id).localeCompare(String(b.name || b.id)));
+        const btn = (cls, fn, id, label) => '<button class="btn small ' + cls + '" onclick="' + fn + "('" + esc(id) + "')\">" + label + "</button>";
+        box.innerHTML =
+          (max
+            ? '<div class="sub">Licencia: ' + activeN + " de " + max + " dispositivos activos" + (activeN >= max ? " · límite alcanzado" : "") + "</div>"
+            : "") +
+          list
+            .map((d) => {
+              let mine = d.id === me,
+                st = v2Status.get(d.id) || {},
+                drainMs = tsMs(d.drainUntil),
+                draining = d.active !== true && !d.lost && Number.isFinite(drainMs) && drainMs > Date.now(),
+                cloneSuspect = d.installId && st.installId && st.installId !== d.installId,
+                pills =
+                  d.active === true
+                    ? '<span class="pill ok">Autorizado</span>'
+                    : d.lost
+                      ? '<span class="pill off">Perdido</span>'
+                      : d.revokedAt
+                        ? '<span class="pill off">Revocado</span>'
+                        : '<span class="pill wait">Pendiente</span>',
+                notes = [];
+              if (mainIds().includes(d.id)) pills += ' <span class="pill ok">PC Main</span>';
+              if (cloneSuspect) pills += ' <span class="pill off">Instalación distinta</span>';
+              if (st.lockState) pills += ' <span class="pill wait">Bloqueo confirmado</span>';
+              if (d.lost) {
+                notes.push("Reportado " + fmtDT(tsMs(d.lostAt)) + (d.lostReason ? " · " + d.lostReason : ""));
+                notes.push(d.wipeRequested ? (d.wipedAt ? "Datos borrados el " + fmtDT(tsMs(d.wipedAt)) : "Borrado pendiente: se ejecuta cuando el equipo se conecte") : "Solo bloqueo (sin borrado)");
+              } else if (d.active !== true && d.revokedAt) {
+                notes.push("Revocado " + fmtDT(tsMs(d.revokedAt)) + (d.revokeReason ? " · " + d.revokeReason : ""));
+                if (draining) notes.push("Puede enviar pendientes hasta " + fmtDT(drainMs));
+              }
+              if (d.lockSeenAt) notes.push("El equipo recibió el bloqueo " + fmtDT(tsMs(d.lockSeenAt)));
+              if (st.shiftOperator) notes.push("Turno abierto: " + st.shiftOperator + " desde " + fmtDT(st.shiftOpenedAt));
+              if (cloneSuspect) notes.push("Otra instalación reporta con este ID (posible copia del navegador)");
+              let actions = "";
+              if (!mine) {
+                if (d.active === true) actions = btn("danger", "revokeDevice", d.id, "Revocar") + " " + btn("danger", "markDeviceLost", d.id, "Perdido");
+                else
+                  actions =
+                    btn("primary", "authorizeFromList", d.id, d.revokedAt ? "Autorizar de nuevo" : "Autorizar") +
+                    (d.revokedAt && !d.lost && !draining ? " " + btn("", "extendDrain", d.id, "Permitir envío de pendientes") : "") +
+                    (!d.lost && d.revokedAt ? " " + btn("danger", "markDeviceLost", d.id, "Perdido") : "");
+                if (d.installId) actions += " " + btn("", "resetInstall", d.id, "Reconocer instalación");
+              }
+              return (
+                '<div class="dev-row"><div><strong>' +
+                esc(d.name || "Dispositivo sin nombre") +
+                "</strong>" +
+                (mine ? ' <span class="pill ok">Este equipo</span>' : "") +
+                " " +
+                pills +
+                '<div class="dev-id">' +
+                esc(d.id) +
+                (st.appVersion ? " · v" + esc(st.appVersion) : "") +
+                "</div>" +
+                (notes.length ? '<div class="correction-log">' + notes.map(esc).join("<br>") + "</div>" : "") +
+                '</div><div class="dev-actions">' +
+                actions +
+                "</div></div>"
+              );
+            })
+            .join("");
+      };
+
+      // --- Licencia (licenses/{cafeId}) y protección frente a copias ---
+      const LICENSE_FIELDS = ["v", "licenseId", "cafeId", "holder", "plan", "maxDevices", "maxMains", "origins", "issuedAt", "expiresAt", "graceDays", "status"];
+      let licenseDoc = secState.license ? secState.license.doc || null : null,
+        licenseVerify = secState.license ? secState.license.verify || "none" : "none",
+        lastLicenseState = null;
+      function licensePayload(d) {
+        let o = {};
+        LICENSE_FIELDS.forEach((k) => {
+          if (d[k] !== undefined) o[k] = d[k];
+        });
+        return o;
+      }
+      function sanitizeLicense(raw) {
+        let d = licensePayload(raw || {});
+        d.origins = Array.isArray(d.origins) ? d.origins.map(String).filter(Boolean) : [];
+        if (raw && raw.sig) d.sig = String(raw.sig);
+        if (raw && raw.keyId) d.keyId = String(raw.keyId);
+        return d;
+      }
+      function b64urlBytes(s) {
+        s = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+        while (s.length % 4) s += "=";
+        return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+      }
+      async function verifyLicenseSig(d) {
+        if (!Object.keys(LICENSE_PUBLIC_KEYS).length) return "unsigned";
+        let jwk = d && d.keyId && LICENSE_PUBLIC_KEYS[d.keyId];
+        if (!jwk || !d.sig || !(crypto && crypto.subtle)) return "bad";
+        try {
+          let key = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]),
+            ok = await crypto.subtle.verify(
+              { name: "ECDSA", hash: "SHA-256" },
+              key,
+              b64urlBytes(d.sig),
+              new TextEncoder().encode(stableStr(licensePayload(d))),
+            );
+          return ok ? "signed" : "bad";
+        } catch (e) {
+          return "bad";
+        }
+      }
+      function originAllowed(d) {
+        let o = d && Array.isArray(d.origins) ? d.origins : [];
+        return !o.length || o.includes(location.origin);
+      }
+      function licenseState() {
+        let d = licenseDoc;
+        if (!d) return { state: "none", label: "Sin licencia instalada (modo compatibilidad)" };
+        if (licenseVerify === "bad") return { state: "invalid", label: "Licencia inválida: la firma no corresponde", block: true };
+        if (String(d.cafeId) !== V2_CAFE) return { state: "invalid", label: "La licencia pertenece a otro negocio", block: true };
+        if (!originAllowed(d)) return { state: "origin", label: "Copia no autorizada: esta dirección (" + location.origin + ") no está en la licencia", block: true };
+        if (d.status === "suspended") return { state: "suspended", label: "Licencia suspendida por el proveedor", block: true };
+        let exp = new Date(d.expiresAt).getTime(),
+          grace = (Number(d.graceDays) >= 0 ? Number(d.graceDays) : 7) * 86400000,
+          now = secNow();
+        if (!Number.isFinite(exp)) return { state: "invalid", label: "Licencia sin fecha de vencimiento válida", block: true };
+        if (now > exp + grace) return { state: "expired", label: "Licencia vencida el " + fmtDT(exp), block: true, exp };
+        if (now > exp) return { state: "grace", label: "Licencia vencida · periodo de gracia hasta el " + fmtDT(exp + grace), exp, left: exp + grace - now };
+        if (exp - now < 15 * 86400000) return { state: "expiring", label: "La licencia vence en " + leftText(exp - now), exp, left: exp - now };
+        return { state: "active", label: "Licencia activa hasta el " + fmtDT(exp), exp };
+      }
+      async function setLicense(d, verify) {
+        licenseDoc = d;
+        licenseVerify = verify;
+        secState.license = d ? { doc: d, verify, checkedAt: Date.now() } : null;
+        saveSec();
+        let st = licenseState();
+        if (st.state !== lastLicenseState) {
+          if (lastLicenseState !== null && ["invalid", "origin", "suspended", "expired"].includes(st.state))
+            BulletAudit.record("licenseProblem", { licenseState: st.state, reason: st.label });
+          lastLicenseState = st.state;
+        }
+        renderSecurityUI();
+      }
+      async function reverifyCachedLicense() {
+        if (licenseDoc && Object.keys(LICENSE_PUBLIC_KEYS).length) {
+          let v = await verifyLicenseSig(licenseDoc);
+          if (v !== licenseVerify) {
+            licenseVerify = v === "signed" ? "signed" : "bad";
+            renderSecurityUI();
+          }
+        }
+        lastLicenseState = licenseState().state;
+      }
+      async function onLicenseSnap(snap) {
+        if (!snap.exists) {
+          if (!snap.metadata.fromCache) setLicense(null, "none");
+          return;
+        }
+        let d = sanitizeLicense(snap.data()),
+          v = await verifyLicenseSig(d);
+        if (v === "unsigned") v = snap.metadata.fromCache ? "cache" : "server";
+        setLicense(d, v);
+      }
+      async function checkLicenseNow() {
+        if (!syncReady || !deviceApproved || navigator.onLine === false) {
+          toast("Conéctate a internet para verificar la licencia");
+          return;
+        }
+        try {
+          let s = await withTimeout(syncDb.collection("licenses").doc(V2_CAFE).get({ source: "server" }), 10000);
+          await onLicenseSnap(s);
+          toast(licenseState().label);
+        } catch (e) {
+          toast("No se pudo consultar la licencia: " + ((e && (e.code || e.message)) || e));
+        }
+      }
+      function renderLicenseCard() {
+        let el = gid("licenseBox");
+        if (!el) return;
+        let st = licenseState(),
+          d = licenseDoc,
+          cls = st.state === "active" ? "ok" : st.state === "none" || st.state === "expiring" || st.state === "grace" ? "wait" : "off",
+          vlabel = { signed: "firma del proveedor verificada", server: "entregada por el servidor", cache: "copia guardada en el equipo", bad: "firma NO válida", none: "—" }[licenseVerify] || licenseVerify;
+        if (!d) {
+          el.innerHTML =
+            '<span class="pill wait">Modo compatibilidad</span> No hay licencia instalada para «' +
+            esc(V2_CAFE) +
+            "». Bullet POS funciona como en 1.9.0. Para instalar o renovar una licencia escribe a " +
+            esc(SUPPORT_EMAIL) +
+            ".";
+          return;
+        }
+        let devs = devicesList.filter((x) => x.active === true).length;
+        el.innerHTML =
+          '<span class="pill ' +
+          cls +
+          '">' +
+          esc(st.label) +
+          '</span><div class="cash-breakdown" style="margin-top:8px">' +
+          [
+            ["Titular", d.holder || "No indicado"],
+            ["Negocio (cafeId)", d.cafeId],
+            ["Plan", d.plan || "—"],
+            ["Licencia", d.licenseId || "—"],
+            ["Vence", fmtDT(d.expiresAt) + " · gracia " + (Number(d.graceDays) >= 0 ? d.graceDays : 7) + " días"],
+            ["Dispositivos", (d.maxDevices ? devs + " de " + d.maxDevices : devs + " (sin límite)") + " · PC Main máx. " + (d.maxMains || 2)],
+            ["Direcciones autorizadas", d.origins && d.origins.length ? d.origins.join(", ") : "Cualquiera"],
+            ["Verificación", vlabel],
+          ]
+            .map((r) => '<div class="line"><span>' + esc(r[0]) + "</span><strong>" + esc(r[1]) + "</strong></div>")
+            .join("") +
+          "</div>";
+      }
+
+      // --- Turnos de los dispositivos secundarios ---
+      let curShift = (function () {
+          try {
+            let s = JSON.parse(localStorage.getItem(SHIFT_KEY) || "null");
+            return s && s.status === "open" ? s : null;
+          } catch (e) {
+            return null;
+          }
+        })(),
+        shiftHistoryCache = [],
+        shiftsList = [],
+        shiftModalMode = "open";
+      function shiftOpen() {
+        return !!(curShift && curShift.status === "open");
+      }
+      function shiftsRequired() {
+        return firebaseConfigured() && isRestrictedDevice() && posPolicy().requireShifts;
+      }
+      function saveShiftLocal(s) {
+        curShift = s && s.status === "open" ? s : null;
+        try {
+          localStorage.setItem(SHIFT_KEY, JSON.stringify(curShift));
+        } catch (e) {}
+        BulletStore.putMeta("currentShift", curShift).catch(() => {});
+      }
+      async function pushShiftHistory(s) {
+        let h = [];
+        try {
+          h = (await BulletStore.getMeta("shiftHistory")) || [];
+        } catch (e) {}
+        h = [s].concat((Array.isArray(h) ? h : []).filter((x) => x && x.id !== s.id)).slice(0, 120);
+        shiftHistoryCache = h;
+        try {
+          await BulletStore.putMeta("shiftHistory", h);
+        } catch (e) {}
+      }
+      BulletStore.ready.then(async () => {
+        try {
+          if (!curShift) {
+            let m = await BulletStore.getMeta("currentShift");
+            if (m && m.status === "open") saveShiftLocal(m);
+          }
+          let h = await BulletStore.getMeta("shiftHistory");
+          shiftHistoryCache = Array.isArray(h) ? h : [];
+        } catch (e) {}
+        renderSecurityUI();
+      });
+      function shiftSummary(sh) {
+        let all = data.sales.filter((s) => s.shiftId === sh.id),
+          ok = all.filter((s) => !s.voided);
+        return {
+          salesCount: ok.length,
+          voidedCount: all.length - ok.length,
+          total: ok.reduce((a, s) => a + cashAmount(s.total), 0),
+          subtotal: ok.reduce((a, s) => a + saleSub(s), 0),
+          tips: ok.reduce((a, s) => a + saleTip(s), 0),
+          byMethod: cashMethodTotals(ok),
+          cashCollected: ok.reduce((a, s) => a + saleCashPart(s), 0),
+          cashTips: ok.reduce((a, s) => a + saleCashTip(s), 0),
+        };
+      }
+      function shiftDuration(sh) {
+        let a = new Date(sh.openedAt).getTime(),
+          b = sh.closedAt ? new Date(sh.closedAt).getTime() : Date.now();
+        return Number.isFinite(a) && Number.isFinite(b) ? leftText(Math.max(0, b - a)) : "—";
+      }
+      function shiftBreakdownHtml(sum, sh) {
+        const L = (a, b, c) => '<div class="line' + (c ? " " + c : "") + '"><span>' + esc(a) + "</span><strong>" + esc(b) + "</strong></div>";
+        return (
+          L("Persona", sh.operator || "No indicada") +
+          L("Inicio", fmtDT(sh.openedAt) + " · " + shiftDuration(sh)) +
+          L("Ventas", String(sum.salesCount) + (sum.voidedCount ? " (+" + sum.voidedCount + " anuladas)" : "")) +
+          CASH_METHODS.filter((m) => sum.byMethod[m]).map((m) => L(m, money(sum.byMethod[m]))).join("") +
+          L("Propinas", money(sum.tips)) +
+          L("Efectivo cobrado (a entregar)", money(sum.cashCollected), "total")
+        );
+      }
+      function openShiftModal(mode) {
+        if (secState.lock) {
+          toast(lockTitle(secState.lock));
+          return;
+        }
+        shiftModalMode = mode || (shiftOpen() ? "close" : "open");
+        let body = gid("shiftModalBody"),
+          act = gid("shiftModalActions");
+        if (shiftModalMode === "open") {
+          gid("shiftModalTitle").textContent = "Iniciar turno";
+          body.innerHTML =
+            '<p class="sub">Las ventas de este equipo quedarán asociadas a tu turno. Funciona sin internet: se sincroniza al reconectar.</p>' +
+            '<label class="lbl" for="shiftOp">Persona que atiende</label><input id="shiftOp" class="field" maxlength="40" placeholder="Ej. Laura (mesera)" />' +
+            '<label class="lbl" for="shiftNote">Observación (opcional)</label><input id="shiftNote" class="field" maxlength="120" />';
+          gid("shiftOp").value = operatorName();
+          act.innerHTML =
+            '<button class="btn" onclick="closeCashModal(\'shiftModal\')">Cancelar</button><button class="btn primary" id="shiftConfirmBtn" onclick="confirmShiftOpen()">Iniciar turno</button>';
+          gid("shiftModal").classList.add("show");
+          focusFirstIn("shiftModal", "shiftOp");
+          return;
+        }
+        if (!shiftOpen()) return openShiftModal("open");
+        let sum = shiftSummary(curShift);
+        gid("shiftModalTitle").textContent = "Cerrar turno";
+        body.innerHTML =
+          '<div class="cash-breakdown">' +
+          shiftBreakdownHtml(sum, curShift) +
+          "</div>" +
+          '<label class="lbl" for="shiftDelivered">Efectivo entregado al cerrar (opcional)</label><input id="shiftDelivered" class="field" type="number" min="0" inputmode="numeric" oninput="renderShiftDiff()" />' +
+          '<div id="shiftDiff" class="change-line muted"></div>' +
+          '<label class="lbl" for="shiftCloseNote">Observaciones</label><input id="shiftCloseNote" class="field" maxlength="160" />' +
+          '<p class="notice">Al cerrar, este equipo no registra ventas nuevas hasta iniciar otro turno' +
+          (shiftsRequired() ? "" : " (los turnos son opcionales en este negocio)") +
+          ". Las mesas abiertas no se modifican.</p>";
+        act.innerHTML =
+          '<button class="btn" onclick="closeCashModal(\'shiftModal\')">Cancelar</button><button class="btn" onclick="printShiftReport()">Imprimir resumen</button><button class="btn danger" id="shiftConfirmBtn" onclick="confirmShiftClose()">Cerrar turno</button>';
+        renderShiftDiff();
+        gid("shiftModal").classList.add("show");
+      }
+      function renderShiftDiff() {
+        let el = gid("shiftDiff");
+        if (!el || !curShift) return;
+        let raw = gid("shiftDelivered").value;
+        if (raw === "") {
+          el.className = "change-line muted";
+          el.textContent = "Si entregas el efectivo, escribe el valor para registrar la diferencia";
+          return;
+        }
+        let d = Number(raw) - shiftSummary(curShift).cashCollected,
+          i = diffInfo(d);
+        el.className = "change-line" + (i.key === "faltante" ? " bad" : "");
+        el.innerHTML = "<span>Diferencia de entrega</span><strong>" + esc(i.label) + "</strong>";
+      }
+      async function confirmShiftOpen() {
+        if (shiftOpen()) {
+          closeCashModal("shiftModal");
+          return;
+        }
+        let b = opBlock("new", { noShift: true });
+        if (b) {
+          toast(b.msg);
+          return;
+        }
+        let op = gid("shiftOp").value.trim().slice(0, 40),
+          note = gid("shiftNote").value.trim().slice(0, 120);
+        if (!op) {
+          toast("Escribe el nombre de la persona que atiende");
+          return;
+        }
+        gid("shiftConfirmBtn").disabled = true;
+        saveOperatorName(op);
+        let s = {
+          id: makeId(),
+          deviceId: currentDeviceId(),
+          deviceName: BulletSupervision.myName(),
+          operator: op,
+          status: "open",
+          openedAt: new Date().toISOString(),
+          openedAtMs: Date.now(),
+          openingNote: note,
+          cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
+          appVersion: APP_VERSION,
+        };
+        saveShiftLocal(s);
+        await pushShiftHistory(s);
+        try {
+          if (firebaseConfigured()) await BulletSync.enqueueDoc("shifts", s.id, s, { kind: "shift" });
+        } catch (e) {
+          console.warn("Turno pendiente de sincronizar:", e);
+        }
+        BulletAudit.record("shiftOpened", { shiftId: s.id, operatorName: op });
+        closeCashModal("shiftModal");
+        watchOwnShift();
+        BulletSupervision.report(true);
+        renderSecurityUI();
+        renderCart();
+        toast("Turno iniciado: " + op);
+      }
+      async function confirmShiftClose() {
+        if (!shiftOpen()) {
+          closeCashModal("shiftModal");
+          return;
+        }
+        let raw = gid("shiftDelivered").value,
+          delivered = raw === "" ? null : Number(raw);
+        if (delivered != null && (!Number.isFinite(delivered) || delivered < 0)) {
+          toast("Revisa el efectivo entregado");
+          return;
+        }
+        let open = Object.values(data.tables || {}).filter((t) => t && t.open && tblLocked(t) && t.checkout && t.checkout.startedBy === currentDeviceId());
+        if (open.length && !confirm("Tienes " + open.length + " cobro(s) de mesa iniciados en este equipo. ¿Cerrar el turno de todas formas?")) return;
+        let sum = shiftSummary(curShift),
+          closed = {
+            ...curShift,
+            status: "closed",
+            closedAt: new Date().toISOString(),
+            closedAtMs: Date.now(),
+            closedBy: currentDeviceId(),
+            closedByName: BulletSupervision.myName(),
+            closeMode: "device",
+            summary: sum,
+            cashDelivered: delivered,
+            cashDifference: delivered == null ? null : delivered - sum.cashCollected,
+            closeNotes: gid("shiftCloseNote").value.trim().slice(0, 160),
+          };
+        gid("shiftConfirmBtn").disabled = true;
+        try {
+          if (firebaseConfigured()) await BulletSync.enqueueDoc("shifts", closed.id, closed, { kind: "shift" });
+        } catch (e) {
+          console.warn("Cierre de turno pendiente de sincronizar:", e);
+        }
+        await pushShiftHistory(closed);
+        saveShiftLocal(null);
+        stopOwnShiftWatch();
+        BulletAudit.record("shiftClosed", {
+          shiftId: closed.id,
+          operatorName: closed.operator,
+          total: sum.total,
+          cashCollected: sum.cashCollected,
+          cashDelivered: delivered,
+          difference: closed.cashDifference,
+        });
+        closeCashModal("shiftModal");
+        BulletSupervision.report(true);
+        renderSecurityUI();
+        toast("Turno cerrado · efectivo cobrado " + money(sum.cashCollected));
+        lastShiftForPrint = closed;
+      }
+      let lastShiftForPrint = null,
+        ownShiftUnsub = null,
+        ownShiftId = null;
+      function stopOwnShiftWatch() {
+        if (ownShiftUnsub) {
+          try {
+            ownShiftUnsub();
+          } catch (e) {}
+        }
+        ownShiftUnsub = null;
+        ownShiftId = null;
+      }
+      // El PC Main puede cerrar un turno; el equipo lo detecta y lo aplica.
+      function watchOwnShift() {
+        if (!syncReady || !deviceApproved || !syncDb || !shiftOpen() || deviceIsMain()) return;
+        if (ownShiftUnsub && ownShiftId === curShift.id) return;
+        stopOwnShiftWatch();
+        ownShiftId = curShift.id;
+        ownShiftUnsub = cloudRoot()
+          .collection("shifts")
+          .doc(curShift.id)
+          .onSnapshot(
+            async (snap) => {
+              if (!snap.exists || snap.metadata.hasPendingWrites) return;
+              let d = snap.data();
+              if (d.status !== "closed" || !curShift || curShift.id !== snap.id) return;
+              try {
+                await BulletStore.del("outbox", "shifts/" + snap.id);
+                await BulletSync.refreshStats();
+              } catch (e) {}
+              await pushShiftHistory(d);
+              saveShiftLocal(null);
+              stopOwnShiftWatch();
+              renderSecurityUI();
+              alert("Un PC Main cerró tu turno" + (d.forcedReason ? ":\n" + d.forcedReason : ".") + "\n\nInicia un turno nuevo para seguir vendiendo.");
+            },
+            () => stopOwnShiftWatch(),
+          );
+      }
+      // PC Main: turnos de los últimos 14 días.
+      function onShiftsSnap(snap) {
+        shiftsList = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+        renderShiftsCard();
+      }
+      async function forceCloseShift(id) {
+        let sh = shiftsList.find((x) => x.id === id);
+        if (!sh || sh.status !== "open") return;
+        if (!deviceIsMain()) return;
+        if (!(await requireMainPassword("cerrar el turno de otro equipo"))) return;
+        let reason = prompt("Motivo para cerrar el turno de " + (sh.operator || "este equipo") + ":", "");
+        if (reason === null) return;
+        reason = reason.trim().slice(0, 160);
+        if (!reason) {
+          toast("Escribe el motivo");
+          return;
+        }
+        let sum = shiftSummary(sh),
+          closed = {
+            ...sh,
+            status: "closed",
+            closedAt: new Date().toISOString(),
+            closedAtMs: Date.now(),
+            closedBy: currentDeviceId(),
+            closedByName: BulletSupervision.myName(),
+            closeMode: "forced",
+            forcedReason: reason,
+            summary: sum,
+            cashDelivered: null,
+            cashDifference: null,
+          };
+        await BulletSync.enqueueDoc("shifts", sh.id, closed, { kind: "shift" });
+        let i = shiftsList.indexOf(sh);
+        if (i >= 0) shiftsList[i] = closed;
+        BulletAudit.record("shiftForceClosed", { shiftId: sh.id, operatorName: sh.operator, deviceId: sh.deviceId, reason });
+        renderShiftsCard();
+        toast("Turno cerrado");
+      }
+      async function reviewShift(id) {
+        let sh = shiftsList.find((x) => x.id === id);
+        if (!sh || sh.status !== "closed" || !v2NeedOnlineMain("confirmar la entrega del turno")) return;
+        let note = prompt(
+          "Confirmar la entrega del turno de " +
+            (sh.operator || "—") +
+            "\nEfectivo cobrado: " +
+            money((sh.summary && sh.summary.cashCollected) || 0) +
+            (sh.cashDelivered != null ? " · entregado " + money(sh.cashDelivered) : "") +
+            "\n\nObservación (opcional):",
+          "",
+        );
+        if (note === null) return;
+        try {
+          await withTimeout(
+            cloudRoot()
+              .collection("shifts")
+              .doc(id)
+              .set({ reviewedAt: Date.now(), reviewedBy: syncUser.uid, reviewedByName: BulletSupervision.myName(), reviewNote: note.trim().slice(0, 160) }, { merge: true }),
+            15000,
+          );
+        } catch (e) {
+          toast("No se pudo guardar: " + ((e && (e.code || e.message)) || e));
+          return;
+        }
+        BulletAudit.record("shiftReviewed", { shiftId: id, operatorName: sh.operator, note: note.trim() });
+        toast("Entrega del turno confirmada");
+      }
+      function renderShiftsCard() {
+        let el = gid("shiftsBox");
+        if (!el) return;
+        if (!deviceIsMain()) {
+          el.innerHTML = "";
+          return;
+        }
+        let open = shiftsList.filter((s) => s.status === "open"),
+          closed = shiftsList
+            .filter((s) => s.status === "closed")
+            .sort((a, b) => String(b.closedAt || "").localeCompare(String(a.closedAt || "")))
+            .slice(0, 30),
+          req = posPolicy().requireShifts;
+        el.innerHTML =
+          '<div class="sub">' +
+          (req ? "Los equipos secundarios deben iniciar turno para vender." : "Los turnos son opcionales (Ajustes > Seguridad y operación).") +
+          (syncReady ? "" : " · Se actualiza cuando este equipo sincroniza.") +
+          "</div>" +
+          (open.length
+            ? '<h4 class="mini-title">Turnos abiertos</h4><div class="table-wrap"><table><thead><tr><th>Mesero</th><th>Equipo</th><th>Desde</th><th>Ventas</th><th>Total</th><th>Efectivo cobrado</th><th></th></tr></thead><tbody>' +
+              open
+                .map((s) => {
+                  let m = shiftSummary(s);
+                  return (
+                    "<tr><td>" +
+                    esc(s.operator || "—") +
+                    "</td><td>" +
+                    esc(s.deviceName || v2DeviceName(s.deviceId)) +
+                    "</td><td>" +
+                    esc(fmtDT(s.openedAt)) +
+                    " · " +
+                    esc(shiftDuration(s)) +
+                    "</td><td>" +
+                    m.salesCount +
+                    "</td><td>" +
+                    money(m.total) +
+                    "</td><td>" +
+                    money(m.cashCollected) +
+                    '</td><td><button class="btn small danger" onclick="forceCloseShift(\'' +
+                    esc(s.id) +
+                    "')\">Cerrar turno</button></td></tr>"
+                  );
+                })
+                .join("") +
+              "</tbody></table></div>"
+            : '<div class="notice">No hay turnos abiertos.</div>') +
+          (closed.length
+            ? '<h4 class="mini-title">Turnos cerrados (14 días)</h4><div class="table-wrap"><table class="cash-table"><thead><tr><th>Mesero</th><th>Equipo</th><th>Inicio</th><th>Cierre</th><th>Ventas</th><th>Total</th><th>Efectivo cobrado</th><th>Entregado</th><th>Diferencia</th><th>Cierre</th><th>Revisión</th></tr></thead><tbody>' +
+              closed
+                .map((s) => {
+                  let m = s.summary || shiftSummary(s),
+                    d = s.cashDifference;
+                  return (
+                    "<tr><td>" +
+                    esc(s.operator || "—") +
+                    "</td><td>" +
+                    esc(s.deviceName || v2DeviceName(s.deviceId)) +
+                    "</td><td>" +
+                    esc(fmtDT(s.openedAt)) +
+                    "</td><td>" +
+                    esc(fmtDT(s.closedAt)) +
+                    "</td><td>" +
+                    (m.salesCount || 0) +
+                    "</td><td>" +
+                    money(m.total) +
+                    "</td><td>" +
+                    money(m.cashCollected) +
+                    "</td><td>" +
+                    nd(s.cashDelivered) +
+                    '</td><td class="' +
+                    (d == null ? "" : diffInfo(d).cls) +
+                    '">' +
+                    (d == null ? "—" : esc(diffInfo(d).label)) +
+                    "</td><td>" +
+                    (s.closeMode === "forced" ? "Forzado por Main" + (s.forcedReason ? ": " + esc(s.forcedReason) : "") : "En el equipo") +
+                    "</td><td>" +
+                    (s.reviewedAt
+                      ? "✓ " + esc(fmtDT(s.reviewedAt)) + (s.reviewNote ? " · " + esc(s.reviewNote) : "")
+                      : '<button class="btn small" onclick="reviewShift(\'' + esc(s.id) + "')\">Confirmar entrega</button>") +
+                    "</td></tr>"
+                  );
+                })
+                .join("") +
+              "</tbody></table></div>"
+            : "");
+      }
+      function renderMyShiftCard() {
+        let el = gid("myShiftCard");
+        if (!el) return;
+        let show = shiftsRequired() || shiftOpen() || (isRestrictedDevice() && shiftHistoryCache.length);
+        el.style.display = show ? "block" : "none";
+        if (!show) return;
+        let hist = shiftHistoryCache.filter((s) => s.status === "closed").slice(0, 5);
+        el.innerHTML =
+          "<h3>Mi turno</h3>" +
+          (shiftOpen()
+            ? '<div class="cash-breakdown">' +
+              shiftBreakdownHtml(shiftSummary(curShift), curShift) +
+              '</div><div class="actions" style="margin-top:8px"><button class="btn danger" onclick="openShiftModal(\'close\')">Cerrar turno</button></div>'
+            : '<div class="sub">No tienes un turno abierto en este equipo.</div><div class="actions" style="margin-top:8px"><button class="btn primary" onclick="openShiftModal(\'open\')">Iniciar turno</button>' +
+              (lastShiftForPrint ? '<button class="btn" onclick="printShiftReport()">Imprimir último turno</button>' : "") +
+              "</div>") +
+          (hist.length
+            ? '<div class="notice"><strong>Turnos anteriores</strong>' +
+              hist
+                .map(
+                  (s) =>
+                    "<div>" +
+                    esc(fmtDT(s.openedAt)) +
+                    " → " +
+                    esc(fmtDT(s.closedAt)) +
+                    " · " +
+                    esc(s.operator || "") +
+                    " · " +
+                    ((s.summary && s.summary.salesCount) || 0) +
+                    " ventas · " +
+                    money((s.summary && s.summary.total) || 0) +
+                    (s.closeMode === "forced" ? " · cerrado por el PC Main" : "") +
+                    "</div>",
+                )
+                .join("") +
+              "</div>"
+            : "");
+      }
+
+      // --- Bloqueos de operación (seguridad, licencia, plazo offline y turno) ---
+      // "new": empezar algo nuevo (venta rápida, abrir mesa, agregar productos).
+      // "finish": terminar lo ya empezado (cobrar una mesa abierta, abonos).
+      // Terminar solo se impide si el equipo está bloqueado (revocado, perdido
+      // o con instalación no reconocida): nunca se deja una cuenta a medias.
+      function opBlock(kind, opts) {
+        opts = opts || {};
+        let l = secState.lock;
+        if (l) return { code: "lock", msg: lockTitle(l) };
+        if (kind === "finish") return null;
+        let lic = licenseState();
+        if (lic.block) return { code: "license", msg: lic.label + ". Las ventas nuevas están bloqueadas; el historial y los respaldos siguen disponibles." };
+        let le = leaseInfo();
+        if (le.applies && !le.ok)
+          return le.never
+            ? { code: "auth", msg: "Este equipo aún no está autorizado. Conéctalo a internet y pide al PC Main que lo autorice.", action: "verify" }
+            : {
+                code: "lease",
+                msg: "Verificación requerida: este equipo lleva más de " + leftText(leaseHours() * 3600000) + " sin confirmar su autorización con el servidor. Conéctalo a internet.",
+                action: "verify",
+              };
+        if (!opts.noShift && shiftsRequired() && !shiftOpen()) return { code: "shift", msg: "Inicia tu turno para empezar a vender.", action: "shift" };
+        return null;
+      }
+      function secBlockToast(b) {
+        if (b.code === "shift") {
+          openShiftModal("open");
+          return;
+        }
+        toast(b.msg);
+        renderSecurityUI();
+      }
+      const _addCart200 = addCart;
+      addCart = function (i) {
+        let b = opBlock("new");
+        if (b) return secBlockToast(b);
+        return _addCart200(i);
+      };
+      const _changeQty200 = changeQty;
+      changeQty = function (i, n) {
+        let b = opBlock("finish");
+        if (b) return secBlockToast(b);
+        return _changeQty200(i, n);
+      };
+      const _selectTable200 = selectTable;
+      selectTable = function (n) {
+        let t = ensureTable(n),
+          b = opBlock(t.open ? "finish" : "new");
+        if (b) return secBlockToast(b);
+        return _selectTable200(n);
+      };
+      const _completeSale200 = completeSale;
+      completeSale = async function () {
+        let b = opBlock(activeTable === null ? "new" : "finish");
+        if (b) return secBlockToast(b);
+        return _completeSale200();
+      };
+      ["registerPartialPayment", "cancelTableCheckout", "voidTableAccount", "addCashMovement", "closeCashSession"].forEach((fn) => {
+        let orig = window[fn];
+        if (typeof orig !== "function") return;
+        window[fn] = async function () {
+          let b = opBlock("finish");
+          if (b) return secBlockToast(b);
+          return orig.apply(this, arguments);
+        };
+      });
+      const _openCashSession200 = openCashSession;
+      openCashSession = async function () {
+        let b = opBlock("new", { noShift: true });
+        if (b) return secBlockToast(b);
+        return _openCashSession200();
+      };
+      // Equipo bloqueado: no escribe mesas (los cambios locales se conservan).
+      const _pushTable200 = pushTable;
+      pushTable = function (n) {
+        if (secState.lock) return Promise.resolve();
+        return _pushTable200(n);
+      };
+      const _tryReleaseTable200 = tryReleaseTable;
+      tryReleaseTable = function (n) {
+        if (secState.lock) return Promise.resolve();
+        return _tryReleaseTable200(n);
+      };
+      const _tryPendingReleases200 = tryPendingReleases;
+      tryPendingReleases = function () {
+        if (secState.lock) return;
+        return _tryPendingReleases200();
+      };
+      // Toda venta nueva pasa por aquí: bloqueo final y asociación al turno.
+      const _saveNewSale200 = BulletStore.saveNewSale;
+      BulletStore.saveNewSale = async function (sale) {
+        if (secState.lock) throw new Error(lockTitle(secState.lock));
+        if (sale && !sale.shiftId && shiftOpen()) {
+          sale.shiftId = curShift.id;
+          sale.shiftOperator = curShift.operator || null;
+        }
+        return _saveNewSale200(sale);
+      };
+      // Un PC Main adicional solo si la licencia lo permite.
+      const _authorizeSecondMain200 = authorizeSecondMain;
+      authorizeSecondMain = async function () {
+        if (licenseDoc && Number(licenseDoc.maxMains) === 1) {
+          toast("La licencia de este negocio permite un solo PC Main");
+          return;
+        }
+        let b = opBlock("new", { noShift: true });
+        if (b && b.code === "license") return secBlockToast(b);
+        return _authorizeSecondMain200();
+      };
+
+      // --- Reporte de estado: incluye instalación, bloqueo, turno y licencia ---
+      let v2LastReport = 0,
+        v2LastActivity = Date.now();
+      ["pointerdown", "keydown"].forEach((ev) => document.addEventListener(ev, () => (v2LastActivity = Date.now()), { passive: true }));
+      BulletSupervision.report = function (force) {
+        if (!syncReady || !deviceApproved || !syncDb || !syncUser) return;
+        if (!force && Date.now() - v2LastReport < 50000) return;
+        v2LastReport = Date.now();
+        let s = BulletSync.stats(),
+          le = leaseInfo();
+        cloudRoot()
+          .collection("deviceStatus")
+          .doc(syncUser.uid)
+          .set({
+            deviceId: syncUser.uid,
+            name: BulletSupervision.myName(),
+            role: deviceIsMain() ? "main" : "secondary",
+            online: navigator.onLine !== false,
+            pendingSales: s.pendingSales || 0,
+            pendingOps: (s.pendingOps || 0) + (s.syncingOps || 0),
+            errorOps: s.errorOps || 0,
+            lastConfirmedSyncAt: s.lastConfirmedAt || null,
+            lastActivityAt: v2LastActivity,
+            clientTime: Date.now(),
+            reportedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            appVersion: APP_VERSION,
+            cashSessionId: (cashSession && cashSession.id) || null,
+            installId: secState.installId,
+            lockState: secState.lock ? secState.lock.state : null,
+            shiftId: shiftOpen() ? curShift.id : null,
+            shiftOperator: shiftOpen() ? curShift.operator || null : null,
+            shiftOpenedAt: shiftOpen() ? curShift.openedAt : null,
+            leaseUntil: le.until || null,
+            licenseState: licenseState().state,
+          })
+          .catch((e) => console.warn("Reporte de estado:", e && (e.code || e.message)));
+      };
+      // Antes de cerrar la caja también se avisan los turnos abiertos.
+      const _preCloseCheck200 = BulletSupervision.preCloseCheck;
+      BulletSupervision.preCloseCheck = async function () {
+        let r = await _preCloseCheck200();
+        shiftsList
+          .filter((s) => s.status === "open")
+          .forEach((s) =>
+            r.issues.push({
+              text: "Turno abierto: " + (s.operator || "sin nombre") + " en " + (s.deviceName || v2DeviceName(s.deviceId)) + " desde " + fmtDT(s.openedAt) + " (sus ventas siguen asociadas al turno)",
+            }),
+          );
+        return r;
+      };
+
+      // --- Reinicio global de historial (época compartida en control/historyEpoch) ---
+      // Las ventas anteriores a la época se marcan como archivadas (igual que el
+      // archivado mensual): siguen en Firebase, en IndexedDB y en los respaldos.
+      // Nunca se borra una venta. Las ventas pendientes de enviar se muestran
+      // hasta que el servidor las confirme.
+      let epochArchived = new Set(),
+        epochBulkDone = null,
+        showOldCash = false,
+        resetsCache = null;
+      function historyEpoch() {
+        return (data.settings && data.settings.historyEpoch) || null;
+      }
+      function epochCutMs() {
+        let e = historyEpoch();
+        let t = e && e.startedAt ? new Date(e.startedAt).getTime() : NaN;
+        return Number.isFinite(t) ? t : null;
+      }
+      function applyHistoryEpoch() {
+        let e = historyEpoch(),
+          cut = epochCutMs();
+        if (!e || cut == null || !Array.isArray(data.sales)) return;
+        let keep = new Set();
+        if (e.cashSessionIdAtReset) keep.add(e.cashSessionIdAtReset);
+        allCashSessions().forEach((h) => {
+          let t = new Date(h.openedAt).getTime();
+          if (Number.isFinite(t) && t >= cut) keep.add(h.id);
+        });
+        let kept = [],
+          out = [];
+        data.sales.forEach((s) => {
+          let t = new Date(s.date).getTime(),
+            id = String(s.id);
+          if (!Number.isFinite(t) || t >= cut || (s.cashSessionId && keep.has(s.cashSessionId)) || (BulletSync.isPending(id) && !epochArchived.has(id)))
+            kept.push(s);
+          else out.push(s);
+        });
+        if (!out.length) return;
+        data.sales = kept;
+        let fresh = out.filter((s) => !epochArchived.has(String(s.id)));
+        if (!fresh.length) return;
+        fresh.forEach((s) => epochArchived.add(String(s.id)));
+        let at = new Date().toISOString(),
+          marked = fresh.map((s) => ({ ...s, archived: true, archivedAt: s.archivedAt || at, archiveId: s.archiveId || "reinicio:" + e.id }));
+        BulletStore.putSales(marked).catch((x) => console.warn("Archivo por reinicio:", x));
+        // En la nube archiva el Main que hizo el reinicio (o cualquier Main si
+        // ese equipo ya no es Main): así los dos Main no repiten las escrituras.
+        let owner = deviceIsMain() && syncUser && (e.startedBy === syncUser.uid || !mainIds().includes(e.startedBy));
+        if (owner && firebaseConfigured() && syncReady) {
+          BulletSync.enqueueSales(marked).catch((x) => console.warn("Archivo por reinicio (nube):", x));
+          if (epochBulkDone === e.id)
+            BulletAudit.record("lateSalesAfterReset", {
+              count: marked.length,
+              total: marked.filter((s) => !s.voided).reduce((a, s) => a + cashAmount(s.total), 0),
+              saleIds: marked.slice(0, 40).map((s) => String(s.id)),
+            });
+        }
+      }
+      function visibleCashSessions() {
+        let all = allCashSessions(),
+          cut = epochCutMs();
+        if (cut == null || showOldCash) return all;
+        return all.filter((h) => {
+          let t = new Date(h.closedAt || h.openedAt).getTime();
+          return !Number.isFinite(t) || t >= cut || (cashSession && h.id === cashSession.id);
+        });
+      }
+      function toggleOldCash() {
+        showOldCash = !showOldCash;
+        renderCashDashboard();
+      }
+      function onEpochSnap(snap) {
+        if (!snap.exists) return;
+        let e = snap.data(),
+          cur = historyEpoch();
+        if (cur && cur.id === e.id) return;
+        data.settings.historyEpoch = e;
+        persist();
+        if (cur || (data.sales || []).some((s) => new Date(s.date).getTime() < new Date(e.startedAt).getTime()))
+          toast("Un PC Main reinició el historial de ventas (" + fmtDT(e.startedAt) + ")");
+        // La primera pasada archiva el periodo anterior; las siguientes solo
+        // encuentran ventas que llegaron tarde (equipos que estaban sin conexión).
+        epochBulkDone = null;
+        renderSales();
+        epochBulkDone = e.id;
+        renderCashDashboard();
+        renderArchiveLog();
+        renderSecurityUI();
+      }
+      function resetBlockers() {
+        let out = [];
+        if (!deviceIsMain()) out.push("Solo un PC Main puede reiniciar el historial.");
+        if (!firebaseConfigured() || !syncReady || !deviceApproved || navigator.onLine === false)
+          out.push("Conéctate a internet: el reinicio se aplica a todos los dispositivos a la vez.");
+        let tables = Object.values(data.tables || {}).filter((t) => t && t.open);
+        if (tables.length) out.push("Hay " + tables.length + " mesa(s) abiertas. Cóbralas o anúlalas antes del reinicio.");
+        let st = BulletSync.stats(),
+          pend = (st.pendingOps || 0) + (st.syncingOps || 0) + (st.errorOps || 0);
+        if (pend) out.push("Este equipo tiene " + pend + " operación(es) sin confirmar. Sincroniza primero (indicador de sincronización).");
+        if (cashSession && cashSession.status === "open") {
+          let moves = cashMovements.filter((m) => m.sessionId === cashSession.id).length;
+          if (sessionSales().length || moves) out.push("La caja abierta ya tiene ventas o movimientos. Ciérrala primero (Caja > Cerrar caja): el reinicio empieza con una caja nueva.");
+        }
+        if (licenseState().state === "origin") out.push("Esta copia no está autorizada por la licencia.");
+        return out;
+      }
+      function resetWarnings() {
+        let out = [];
+        try {
+          BulletSupervision.rows()
+            .filter((r) => !r.mine && r.state !== "connected")
+            .forEach((r) => out.push(r.name + ": " + r.label + " (sus ventas pendientes llegarán después y se archivarán con el periodo anterior)"));
+        } catch (e) {}
+        shiftsList.filter((s) => s.status === "open").forEach((s) => out.push("Turno abierto: " + (s.operator || "sin nombre") + " (continúa; sus ventas nuevas quedan en el periodo nuevo)"));
+        return out;
+      }
+      function openHistoryReset() {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede reiniciar el historial");
+          return;
+        }
+        let bl = resetBlockers(),
+          wr = resetWarnings(),
+          sales = data.sales.filter((s) => !s.voided),
+          dates = data.sales.map((s) => new Date(s.date).getTime()).filter(Number.isFinite),
+          e = historyEpoch();
+        gid("resetInfo").innerHTML =
+          '<div class="cash-breakdown">' +
+          [
+            ["Ventas en el historial activo", String(data.sales.length) + (data.sales.length - sales.length ? " (" + (data.sales.length - sales.length) + " anuladas)" : "")],
+            ["Total del periodo", money(sales.reduce((a, s) => a + cashAmount(s.total), 0))],
+            ["Desde", dates.length ? fmtDT(Math.min(...dates)) : "—"],
+            ["Hasta", dates.length ? fmtDT(Math.max(...dates)) : "—"],
+            ["Periodo actual", e ? "desde " + fmtDT(e.startedAt) : "desde el inicio"],
+          ]
+            .map((r) => '<div class="line"><span>' + esc(r[0]) + "</span><strong>" + esc(r[1]) + "</strong></div>")
+            .join("") +
+          "</div>" +
+          (bl.length ? '<div class="warnnote" style="margin-top:10px">No se puede reiniciar todavía:<br>• ' + bl.map(esc).join("<br>• ") + "</div>" : "") +
+          (wr.length ? '<div class="warnnote" style="margin-top:10px">Advertencias:<br>• ' + wr.map(esc).join("<br>• ") + "</div>" : "");
+        gid("resetConfirmText").value = "";
+        gid("resetNote").value = "";
+        gid("resetConfirmBtn").disabled = !!bl.length;
+        gid("resetModal").classList.add("show");
+      }
+      async function confirmHistoryReset() {
+        let bl = resetBlockers();
+        if (bl.length) {
+          toast(bl[0]);
+          return;
+        }
+        if (gid("resetConfirmText").value.trim().toUpperCase() !== "REINICIAR") {
+          toast("Escribe REINICIAR para confirmar");
+          return;
+        }
+        if (!(await requireMainPassword("reiniciar el historial global"))) return;
+        gid("resetConfirmBtn").disabled = true;
+        let note = gid("resetNote").value.trim().slice(0, 160),
+          prev = historyEpoch(),
+          ok = data.sales.filter((s) => !s.voided);
+        // Copias obligatorias antes del reinicio (JSON completo + Excel).
+        try {
+          await exportBackup("ANTES-DE-REINICIO_");
+          await new Promise((r) => setTimeout(r, 900));
+          await exportExcel();
+        } catch (e) {
+          gid("resetConfirmBtn").disabled = false;
+          alert("No se pudieron generar las copias previas. No se reinició nada.\n\n" + ((e && e.message) || e));
+          return;
+        }
+        let ep = {
+          id: makeId(),
+          startedAt: new Date().toISOString(),
+          startedBy: syncUser.uid,
+          startedByName: BulletSupervision.myName(),
+          operator: operatorName() || null,
+          previousEpochId: (prev && prev.id) || null,
+          previousStartedAt: (prev && prev.startedAt) || null,
+          cashSessionIdAtReset: cashSession && cashSession.status === "open" ? cashSession.id : null,
+          salesArchived: data.sales.length,
+          totalArchived: ok.reduce((a, s) => a + cashAmount(s.total), 0),
+          tipsArchived: ok.reduce((a, s) => a + saleTip(s), 0),
+          note,
+          appVersion: APP_VERSION,
+        };
+        try {
+          await withTimeout(
+            syncDb.runTransaction(async (tx) => {
+              let ref = cloudRoot().collection("control").doc("historyEpoch"),
+                s = await tx.get(ref),
+                cur = s.exists ? s.data() : null;
+              if (((cur && cur.id) || null) !== ((prev && prev.id) || null))
+                throw new Error("Otro PC Main reinició el historial hace un momento. Revisa el historial antes de continuar.");
+              tx.set(ref, ep);
+              tx.set(cloudRoot().collection("historyResets").doc(ep.id), ep);
+            }),
+            20000,
+          );
+        } catch (e) {
+          gid("resetConfirmBtn").disabled = false;
+          alert("No se pudo reiniciar el historial: " + ((e && (e.code || e.message)) || e));
+          return;
+        }
+        data.settings.historyEpoch = ep;
+        if (!Array.isArray(data.settings.historyResets)) data.settings.historyResets = [];
+        data.settings.historyResets.push({ id: ep.id, at: ep.startedAt, count: ep.salesArchived, total: ep.totalArchived, tips: ep.tipsArchived, note });
+        persist();
+        BulletAudit.record("historyReset", { epochId: ep.id, count: ep.salesArchived, total: ep.totalArchived, note });
+        epochBulkDone = null;
+        renderSales();
+        epochBulkDone = ep.id;
+        resetsCache = null;
+        closeCashModal("resetModal");
+        renderCashDashboard();
+        renderArchiveLog();
+        renderSecurityUI();
+        toast("Historial reiniciado en todos los dispositivos. Las ventas anteriores quedan archivadas.");
+      }
+      async function renderResetCard() {
+        let el = gid("resetBox");
+        if (!el) return;
+        let e = historyEpoch();
+        el.innerHTML = e
+          ? "Periodo actual desde <strong>" +
+            esc(fmtDT(e.startedAt)) +
+            "</strong> · reinició " +
+            esc(personLabel(e.startedBy, e.startedByName, e.operator)) +
+            " · " +
+            (Number(e.salesArchived) || 0) +
+            " ventas archivadas (" +
+            money(e.totalArchived) +
+            ")" +
+            (e.note ? " · " + esc(e.note) : "")
+          : "Aún no se ha reiniciado el historial: se muestran todas las ventas activas.";
+        if (!deviceIsMain() || !syncReady || resetsCache) {
+          if (resetsCache && resetsCache.length > 1) el.innerHTML += '<div class="notice">' + resetsCache.slice(1, 6).map((r) => "Reinicio anterior: " + esc(fmtDT(r.startedAt)) + " · " + (Number(r.salesArchived) || 0) + " ventas").join("<br>") + "</div>";
+          return;
+        }
+        resetsCache = [];
+        try {
+          let s = await withTimeout(cloudRoot().collection("historyResets").orderBy("startedAt", "desc").limit(10).get(), 10000);
+          resetsCache = s.docs.map((d) => d.data());
+          renderResetCard();
+        } catch (x) {}
+      }
+      const _renderArchiveLog200 = renderArchiveLog;
+      renderArchiveLog = function () {
+        _renderArchiveLog200();
+        let el = gid("archiveLog"),
+          e = historyEpoch();
+        if (!el || !e) return;
+        el.style.display = "block";
+        el.insertAdjacentHTML(
+          "beforeend",
+          '<div class="sub" style="margin-top:6px"><strong>Reinicio global:</strong> periodo actual desde ' +
+            esc(fmtDT(e.startedAt)) +
+            " · las ventas anteriores están archivadas (Firebase, respaldos JSON y el Excel descargado al reiniciar).</div>",
+        );
+      };
+      const _renderSales200 = renderSales;
+      renderSales = function () {
+        try {
+          applyHistoryEpoch();
+        } catch (e) {
+          console.warn("Reinicio de historial:", e);
+        }
+        return _renderSales200.apply(this, arguments);
+      };
+
+      // --- Caja profesional: denominaciones, arqueo parcial y reportes X/Z ---
+      function denomGridHtml(prefix) {
+        return (
+          '<div class="denom-grid">' +
+          DENOMS.map(
+            (d) =>
+              '<label><span>' +
+              money(d) +
+              '</span><input class="field" type="number" min="0" step="1" inputmode="numeric" id="' +
+              prefix +
+              d +
+              '" oninput="denomInput(\'' +
+              prefix +
+              "')\" /></label>",
+          ).join("") +
+          '</div><div class="sub" id="' +
+          prefix +
+          'Sum"></div>'
+        );
+      }
+      function denomRead(prefix) {
+        let counts = {},
+          sum = 0;
+        DENOMS.forEach((d) => {
+          let el = gid(prefix + d),
+            v = el ? Math.max(0, Math.floor(Number(el.value) || 0)) : 0;
+          if (v) {
+            counts[d] = v;
+            sum += v * d;
+          }
+        });
+        return { counts, sum, any: Object.keys(counts).length > 0 };
+      }
+      function denomClear(prefix) {
+        DENOMS.forEach((d) => {
+          let el = gid(prefix + d);
+          if (el) el.value = "";
+        });
+        let s = gid(prefix + "Sum");
+        if (s) s.textContent = "";
+      }
+      function denomInput(prefix) {
+        let r = denomRead(prefix);
+        gid(prefix + "Sum").textContent = r.any ? "Total por denominaciones: " + money(r.sum) : "";
+        if (!r.any) return;
+        if (prefix === "dnC") {
+          gid("closeCounted").value = String(r.sum);
+          renderCloseDifference();
+        } else {
+          gid("pcCounted").value = String(r.sum);
+          renderPartialDiff();
+        }
+      }
+      function denomLines(counts, W) {
+        return Object.keys(counts || {})
+          .map(Number)
+          .sort((a, b) => b - a)
+          .map((d) => rcRow(fmt(d) + " x " + counts[d], fmt(d * counts[d]), W));
+      }
+      // Gancho usado por confirmCloseCash (1.9.0) para guardar el detalle del conteo.
+      function cashCloseExtras200() {
+        let r = denomRead("dnC");
+        return {
+          denominations: r.any ? r.counts : null,
+          countedByDenominations: r.any && Number(gid("closeCounted").value) === r.sum,
+          shiftsAtClose: shiftsList
+            .filter((s) => s.status === "open")
+            .map((s) => ({ id: s.id, operator: s.operator || null, deviceId: s.deviceId, deviceName: s.deviceName || null, openedAt: s.openedAt })),
+          diffNoteThreshold: posPolicy().diffNoteThreshold,
+        };
+      }
+      const _closeCashSession200 = closeCashSession;
+      closeCashSession = async function () {
+        await _closeCashSession200();
+        if (!gid("cashCloseModal").classList.contains("show")) return;
+        denomClear("dnC");
+        let thr = posPolicy().diffNoteThreshold,
+          open = shiftsList.filter((s) => s.status === "open");
+        gid("closeNoteHint").textContent =
+          (thr ? "Si la diferencia es de " + money(thr) + " o más, la observación es obligatoria. " : "") +
+          (open.length ? open.length + " turno(s) de meseros siguen abiertos." : "");
+      };
+      const _confirmCloseCash200 = confirmCloseCash;
+      confirmCloseCash = async function () {
+        if (pendingClose && cashSession && cashSession.status === "open") {
+          let raw = gid("closeCounted").value,
+            thr = posPolicy().diffNoteThreshold;
+          if (raw !== "" && thr > 0) {
+            let d = Number(raw) - sessionTotals().expected;
+            if (Math.abs(d) >= thr && !gid("closeNotes").value.trim()) {
+              toast("Diferencia de " + money(Math.abs(d)) + ": escribe una observación del cierre");
+              gid("closeNotes").focus();
+              return;
+            }
+          }
+        }
+        let before = cashSession && cashSession.id;
+        await _confirmCloseCash200();
+        if (before && cashHistory[0] && cashHistory[0].id === before) {
+          lastClosedForPrint = cashHistory[0];
+          renderCashDashboard();
+        }
+      };
+      let lastClosedForPrint = null,
+        partialLocal = {};
+      BulletStore.ready.then(async () => {
+        try {
+          partialLocal = (await BulletStore.getMeta("partialCounts")) || {};
+        } catch (e) {}
+      });
+      function sessionPartials(h) {
+        if (!h || !h.id) return [];
+        let m = new Map();
+        (Array.isArray(h.partialCounts) ? h.partialCounts : []).forEach((p) => p && p.id && m.set(p.id, p));
+        (partialLocal[h.id] || []).forEach((p) => p && p.id && !m.has(p.id) && m.set(p.id, p));
+        return [...m.values()].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      }
+      async function openPartialCount() {
+        if (!cashSession || cashSession.status !== "open") {
+          toast("No hay una caja abierta");
+          return;
+        }
+        let b = opBlock("finish");
+        if (b) return secBlockToast(b);
+        if (!(await requireMainPassword("registrar un arqueo parcial"))) return;
+        gid("pcBreakdown").innerHTML = cashBreakdownHtml(sessionTotals());
+        gid("pcDenoms").innerHTML = denomGridHtml("dnP");
+        gid("pcCounted").value = "";
+        gid("pcNote").value = "";
+        gid("pcConfirm").disabled = false;
+        renderPartialDiff();
+        gid("partialCountModal").classList.add("show");
+      }
+      function renderPartialDiff() {
+        let el = gid("pcDiff"),
+          raw = gid("pcCounted").value;
+        if (!el) return;
+        if (raw === "") {
+          el.className = "change-line muted";
+          el.textContent = "Escribe el efectivo contado";
+          return;
+        }
+        let d = Number(raw) - sessionTotals().expected,
+          i = diffInfo(d);
+        el.className = "change-line" + (i.key === "faltante" ? " bad" : "");
+        el.innerHTML = "<span>Diferencia en este momento</span><strong>" + esc(i.label) + "</strong>";
+      }
+      async function confirmPartialCount() {
+        if (!cashSession || cashSession.status !== "open") return;
+        let raw = gid("pcCounted").value,
+          counted = Number(raw);
+        if (raw === "" || !Number.isFinite(counted) || counted < 0) {
+          toast("Escribe el efectivo contado");
+          return;
+        }
+        gid("pcConfirm").disabled = true;
+        let t = sessionTotals(),
+          dn = denomRead("dnP"),
+          rec = {
+            id: makeId(),
+            at: new Date().toISOString(),
+            by: currentDeviceId(),
+            byName: BulletSupervision.myName(),
+            operator: operatorName() || null,
+            expected: t.expected,
+            counted,
+            difference: counted - t.expected,
+            denominations: dn.any ? dn.counts : null,
+            salesCount: t.sales.length,
+            note: gid("pcNote").value.trim().slice(0, 160),
+          };
+        cashSession.partialCounts = (Array.isArray(cashSession.partialCounts) ? cashSession.partialCounts : []).concat(rec);
+        saveCashLocal(cashSession);
+        partialLocal[cashSession.id] = (partialLocal[cashSession.id] || []).concat(rec);
+        BulletStore.putMeta("partialCounts", partialLocal).catch(() => {});
+        if (firebaseConfigured()) await BulletSync.enqueueArrayUnion("cashSessions", cashSession.id, "partialCounts", rec);
+        BulletAudit.record("cashPartialCount", { sessionId: cashSession.id, expectedCash: rec.expected, countedCash: counted, difference: rec.difference, note: rec.note });
+        closeCashModal("partialCountModal");
+        renderCashDashboard();
+        toast("Arqueo parcial registrado (" + diffInfo(rec.difference).label + ")");
+      }
+
+      // --- Impresión de reportes (corte X, cierre Z, turno, cuadre diario) ---
+      function prWidth() {
+        let f = printFormat();
+        return f === "58" ? 32 : f === "80" ? 42 : 64;
+      }
+      function prCenter(t, W) {
+        return " ".repeat(Math.max(0, Math.floor((W - t.length) / 2))) + t;
+      }
+      function prHeader(title, W) {
+        let b = (data.settings && data.settings.business) || {},
+          out = [];
+        if (b.name) out.push(prCenter(b.name, W));
+        if (b.nit) out.push(prCenter("NIT " + b.nit, W));
+        out.push("=".repeat(W));
+        wrapTxt(title, W).forEach((l) => out.push(prCenter(l, W)));
+        out.push(prCenter(fmtDT(Date.now()), W));
+        out.push("=".repeat(W));
+        return out;
+      }
+      function prFooter(W) {
+        return ["-".repeat(W), prCenter("Generado por Bullet POS " + APP_VERSION, W), prCenter("Soporte: " + SUPPORT_EMAIL, W), "-".repeat(W)];
+      }
+      function printTextReport(title, lines) {
+        let f = printFormat(),
+          el = gid("printReceipt");
+        el.className = "pf-" + f;
+        el.innerHTML = '<div class="pr-head">BULLET POS</div><pre>' + esc(lines.join("\n")) + "</pre>";
+        let ps = gid("printPageStyle");
+        if (!ps) {
+          ps = document.createElement("style");
+          ps.id = "printPageStyle";
+          document.head.appendChild(ps);
+        }
+        ps.textContent = f === "letter" ? "@page{size:letter;margin:15mm}" : "@page{size:" + f + "mm auto;margin:0}";
+        setTimeout(() => window.print(), 30);
+      }
+      function cashReportLines(h, kind, W) {
+        let live = kind === "X",
+          t = live ? sessionTotals() : null,
+          r = sessionSummary(h),
+          L = [];
+        const R = (a, b) => L.push(rcRow(a, b, W));
+        prHeader(live ? "CORTE X · ESTADO DE CAJA (sin cerrar)" : "REPORTE Z · CIERRE DE CAJA", W).forEach((x) => L.push(x));
+        R("Caja", String(h.id).slice(0, 8).toUpperCase());
+        R("Apertura", fmtDT(h.openedAt));
+        wrapTxt("Abrió: " + r.openedBy, W).forEach((x) => L.push(x));
+        if (!live) {
+          R("Cierre", fmtDT(h.closedAt));
+          wrapTxt("Cerró: " + r.closedBy, W).forEach((x) => L.push(x));
+        }
+        L.push("-".repeat(W));
+        R("Base inicial", fmt(r.opening));
+        CASH_METHODS.forEach((m) => R("Ventas " + m.toLowerCase(), fmt((r.byMethod && r.byMethod[m]) || 0)));
+        if (r.byMethod && r.byMethod.Otros) R("Otros medios", fmt(r.byMethod.Otros));
+        R("Total vendido", fmt(r.total));
+        R("Propinas", fmt(r.tips) + (r.tipsMode !== "No disponible" ? " (" + r.tipsMode + ")" : ""));
+        R("Ingresos manuales", r.ins == null ? "N/D" : fmt(r.ins));
+        R("Salidas manuales", r.outs == null ? "N/D" : "-" + fmt(r.outs));
+        L.push("-".repeat(W));
+        R("EFECTIVO ESPERADO", r.expected == null ? "N/D" : fmt(r.expected));
+        if (!live) {
+          R("EFECTIVO CONTADO", r.counted == null ? "N/D" : fmt(r.counted));
+          if (r.diff != null) R("DIFERENCIA", diffInfo(r.diff).label.replace(/[✅⚠]\s?/g, ""));
+          if (h.cardReported != null) R("Datáfono reportado", fmt(h.cardReported) + " (" + diffInfo(h.cardDifference).label.replace(/[✅⚠]\s?/g, "") + ")");
+          if (h.transfersReported != null) R("Transf. verificadas", fmt(h.transfersReported) + " (" + diffInfo(h.transfersDifference).label.replace(/[✅⚠]\s?/g, "") + ")");
+          R("Ventas incluidas", String(h.salesCount != null ? h.salesCount : (h.includedSaleIds || []).length));
+        } else R("Ventas hasta ahora", String(t.sales.length));
+        if (h.denominations) {
+          L.push("-".repeat(W));
+          L.push("Conteo por denominaciones");
+          denomLines(h.denominations, W).forEach((x) => L.push(x));
+        }
+        let pcs = sessionPartials(h);
+        if (pcs.length) {
+          L.push("-".repeat(W));
+          L.push("Arqueos parciales");
+          pcs.forEach((p) => {
+            R(fmtDT(p.at), fmt(p.counted));
+            R("  esperado " + fmt(p.expected), diffInfo(p.difference).label.replace(/[✅⚠]\s?/g, ""));
+          });
+        }
+        let shifts = live ? shiftsList.filter((s) => s.status === "open") : h.shiftsAtClose || [];
+        if (shifts.length) {
+          L.push("-".repeat(W));
+          L.push(live ? "Turnos abiertos" : "Turnos abiertos al cierre");
+          shifts.forEach((s) => wrapTxt("• " + (s.operator || "—") + " · " + (s.deviceName || v2DeviceName(s.deviceId)), W).forEach((x) => L.push(x)));
+        }
+        if (h.notes) {
+          L.push("-".repeat(W));
+          wrapTxt("Observaciones: " + h.notes, W).forEach((x) => L.push(x));
+        }
+        if (!live) {
+          let late = lateSalesFor(h);
+          if (late.length) R("Ventas tardías", late.length + " · " + fmt(late.reduce((a, s) => a + cashAmount(s.total), 0)));
+          if (h.closeCheck && h.closeCheck.forced) L.push("* Cerrada con advertencias de sincronización");
+        }
+        L.push("");
+        L.push("Firma: " + "_".repeat(Math.max(6, W - 7)));
+        return L.concat(prFooter(W));
+      }
+      function printCashX() {
+        if (!cashSession || cashSession.status !== "open") {
+          toast("No hay una caja abierta");
+          return;
+        }
+        printTextReport("Corte X", cashReportLines(cashSession, "X", prWidth()));
+      }
+      function printCashZ(id) {
+        let h = id ? allCashSessions().find((x) => x.id === id) : lastClosedForPrint || cashHistory[0];
+        if (!h || h.status !== "closed") {
+          toast("No hay un cierre para imprimir");
+          return;
+        }
+        printTextReport("Reporte Z", cashReportLines(h, "Z", prWidth()));
+      }
+      function shiftReportLines(sh, W) {
+        let sum = sh.status === "closed" && sh.summary ? sh.summary : shiftSummary(sh),
+          L = [];
+        const R = (a, b) => L.push(rcRow(a, b, W));
+        prHeader(sh.status === "closed" ? "CIERRE DE TURNO" : "TURNO EN CURSO", W).forEach((x) => L.push(x));
+        R("Persona", sh.operator || "—");
+        R("Equipo", sh.deviceName || "—");
+        R("Inicio", fmtDT(sh.openedAt));
+        if (sh.closedAt) R("Cierre", fmtDT(sh.closedAt));
+        L.push("-".repeat(W));
+        R("Ventas", String(sum.salesCount || 0));
+        if (sum.voidedCount) R("Anuladas", String(sum.voidedCount));
+        CASH_METHODS.forEach((m) => {
+          if (sum.byMethod && sum.byMethod[m]) R(m, fmt(sum.byMethod[m]));
+        });
+        R("Propinas", fmt(sum.tips || 0));
+        R("Total", fmt(sum.total || 0));
+        L.push("-".repeat(W));
+        R("EFECTIVO COBRADO", fmt(sum.cashCollected || 0));
+        if (sh.cashDelivered != null) {
+          R("Efectivo entregado", fmt(sh.cashDelivered));
+          R("Diferencia", diffInfo(sh.cashDifference).label.replace(/[✅⚠]\s?/g, ""));
+        }
+        if (sh.closeNotes) wrapTxt("Obs.: " + sh.closeNotes, W).forEach((x) => L.push(x));
+        L.push("");
+        L.push("Entrega: " + "_".repeat(Math.max(6, W - 9)));
+        L.push("Recibe:  " + "_".repeat(Math.max(6, W - 9)));
+        return L.concat(prFooter(W));
+      }
+      function printShiftReport() {
+        let sh = shiftOpen() ? curShift : lastShiftForPrint;
+        if (!sh) {
+          toast("No hay un turno para imprimir");
+          return;
+        }
+        printTextReport("Turno", shiftReportLines(sh, prWidth()));
+      }
+
+      // --- Cuadre diario ---
+      function dailyData(day, moves) {
+        let sales = data.sales.filter((s) => saleDay(s) === day),
+          ok = sales.filter((s) => !s.voided),
+          voided = sales.filter((s) => s.voided),
+          sum = (l, f) => l.reduce((a, x) => a + (Number(f(x)) || 0), 0),
+          sessions = allCashSessions()
+            .filter((h) => dayKey(h.openedAt) === day || dayKey(h.closedAt) === day)
+            .map((h) => ({ h, r: sessionSummary(h) })),
+          closed = sessions.filter((x) => x.h.status === "closed" && !x.r.isOpen),
+          mv = (moves || []).filter((m) => dayKey(m.createdAt) === day),
+          ops = {};
+        ok.forEach((s) => {
+          let k = s.shiftOperator || s.operator || deviceLabel(s),
+            o = ops[k] || (ops[k] = { name: k, count: 0, total: 0, tips: 0, cash: 0 });
+          o.count++;
+          o.total += cashAmount(s.total);
+          o.tips += saleTip(s);
+          o.cash += saleCashPart(s);
+        });
+        const nsum = (l, k) => (l.some((x) => x.r[k] == null) ? null : l.reduce((a, x) => a + (Number(x.r[k]) || 0), 0));
+        return {
+          day,
+          salesCount: ok.length,
+          total: sum(ok, (s) => s.total),
+          subtotal: sum(ok, saleSub),
+          tips: sum(ok, saleTip),
+          byMethod: cashMethodTotals(ok),
+          voidedCount: voided.length,
+          voidedTotal: sum(voided, (s) => s.total),
+          tableSales: ok.filter((s) => s.table != null).length,
+          ins: sum(mv.filter((m) => m.type === "in"), (m) => m.amount),
+          outs: sum(mv.filter((m) => m.type === "out"), (m) => m.amount),
+          moves: mv,
+          sessions,
+          closedCount: closed.length,
+          expected: closed.length ? nsum(closed, "expected") : null,
+          counted: closed.length ? nsum(closed, "counted") : null,
+          diff: closed.length ? nsum(closed, "diff") : null,
+          operators: Object.values(ops).sort((a, b) => b.total - a.total),
+          shifts: shiftsList.filter((s) => dayKey(s.openedAt) === day || dayKey(s.closedAt) === day),
+        };
+      }
+      let dailyTimer = null,
+        dailyMoves = null;
+      async function loadDailyMoves() {
+        let m = new Map();
+        try {
+          (await BulletStore.all("cashMovements")).forEach((x) => x && x.id && m.set(x.id, x));
+        } catch (e) {}
+        cashMovements.forEach((x) => x && x.id && m.set(x.id, x));
+        return [...m.values()];
+      }
+      function scheduleDaily() {
+        clearTimeout(dailyTimer);
+        dailyTimer = setTimeout(renderDaily, 400);
+      }
+      async function renderDaily() {
+        let el = gid("dailyReport"),
+          inp = gid("dailyDate");
+        if (!el || !inp || !gid("caja").classList.contains("active")) return;
+        if (!inp.value) inp.value = cashDay();
+        dailyMoves = await loadDailyMoves();
+        let r = dailyData(inp.value, dailyMoves);
+        const M = (a, b) => '<div class="cash-metric"><span>' + esc(a) + "</span><strong>" + b + "</strong></div>";
+        el.innerHTML =
+          '<div class="cash-grid">' +
+          M("Ventas", String(r.salesCount)) +
+          M("Total vendido", money(r.total)) +
+          M("Propinas", money(r.tips)) +
+          M("Anuladas", r.voidedCount + " · " + money(r.voidedTotal)) +
+          CASH_METHODS.map((m) => M(m, money(r.byMethod[m] || 0))).join("") +
+          M("Ingresos / salidas", money(r.ins) + " / -" + money(r.outs)) +
+          M("Cierres del día", String(r.closedCount)) +
+          M("Diferencia de cierres", r.diff == null ? (r.closedCount ? "No disponible" : "—") : '<span class="' + diffInfo(r.diff).cls + '">' + esc(diffInfo(r.diff).label) + "</span>") +
+          "</div>" +
+          (r.sessions.length
+            ? '<div class="table-wrap"><table class="cash-table"><thead><tr><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Base</th><th>Ventas</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Estado</th><th></th></tr></thead><tbody>' +
+              r.sessions
+                .map(
+                  (x) =>
+                    "<tr><td>" +
+                    esc(String(x.h.id).slice(0, 8)) +
+                    "</td><td>" +
+                    esc(fmtDT(x.r.openedAt)) +
+                    "</td><td>" +
+                    (x.r.isOpen ? "Abierta" : esc(fmtDT(x.r.closedAt))) +
+                    "</td><td>" +
+                    money(x.r.opening) +
+                    "</td><td>" +
+                    money(x.r.total) +
+                    "</td><td>" +
+                    nd(x.r.expected) +
+                    "</td><td>" +
+                    (x.r.isOpen ? "—" : nd(x.r.counted)) +
+                    '</td><td class="' +
+                    (x.r.diff == null ? "" : diffInfo(x.r.diff).cls) +
+                    '">' +
+                    (x.r.isOpen || x.r.diff == null ? "—" : esc(diffInfo(x.r.diff).label)) +
+                    "</td><td>" +
+                    esc(x.r.status) +
+                    "</td><td>" +
+                    (x.r.isOpen
+                      ? '<button class="btn small" onclick="printCashX()">Corte X</button>'
+                      : '<button class="btn small" onclick="printCashZ(\'' + esc(x.h.id) + "')\">Reporte Z</button>") +
+                    "</td></tr>",
+                )
+                .join("") +
+              "</tbody></table></div>"
+            : '<div class="notice">No hay cajas abiertas o cerradas ese día.</div>') +
+          (r.operators.length
+            ? '<h4 class="mini-title">Por persona / equipo</h4><div class="table-wrap"><table><thead><tr><th>Persona</th><th>Ventas</th><th>Total</th><th>Propinas</th><th>Efectivo</th></tr></thead><tbody>' +
+              r.operators
+                .map((o) => "<tr><td>" + esc(o.name) + "</td><td>" + o.count + "</td><td>" + money(o.total) + "</td><td>" + money(o.tips) + "</td><td>" + money(o.cash) + "</td></tr>")
+                .join("") +
+              "</tbody></table></div>"
+            : "");
+      }
+      function dailyReportLines(r, W) {
+        let L = [];
+        const R = (a, b) => L.push(rcRow(a, b, W));
+        prHeader("CUADRE DIARIO " + r.day, W).forEach((x) => L.push(x));
+        R("Ventas", String(r.salesCount));
+        R("Mesas / rápidas", r.tableSales + " / " + (r.salesCount - r.tableSales));
+        CASH_METHODS.forEach((m) => R(m, fmt(r.byMethod[m] || 0)));
+        R("Propinas", fmt(r.tips));
+        R("TOTAL VENDIDO", fmt(r.total));
+        R("Anuladas", r.voidedCount + " · " + fmt(r.voidedTotal));
+        R("Ingresos manuales", fmt(r.ins));
+        R("Salidas manuales", "-" + fmt(r.outs));
+        L.push("-".repeat(W));
+        r.sessions.forEach((x) => {
+          R("Caja " + String(x.h.id).slice(0, 8).toUpperCase(), x.r.isOpen ? "ABIERTA" : "CERRADA");
+          R("  Esperado", x.r.expected == null ? "N/D" : fmt(x.r.expected));
+          if (!x.r.isOpen) {
+            R("  Contado", x.r.counted == null ? "N/D" : fmt(x.r.counted));
+            R("  Diferencia", x.r.diff == null ? "N/D" : diffInfo(x.r.diff).label.replace(/[✅⚠]\s?/g, ""));
+          }
+        });
+        if (r.closedCount) R("DIFERENCIA DEL DÍA", r.diff == null ? "N/D" : diffInfo(r.diff).label.replace(/[✅⚠]\s?/g, ""));
+        if (r.operators.length) {
+          L.push("-".repeat(W));
+          L.push("Por persona / equipo");
+          r.operators.forEach((o) => {
+            R(o.name.slice(0, W - 14), fmt(o.total));
+            R("  " + o.count + " ventas · efectivo", fmt(o.cash));
+          });
+        }
+        if (r.moves.length) {
+          L.push("-".repeat(W));
+          L.push("Movimientos de caja");
+          r.moves.forEach((m) => wrapTxt((m.type === "in" ? "+ " : "- ") + fmt(m.amount) + " " + (m.category ? m.category + ": " : "") + (m.reason || ""), W).forEach((x) => L.push(x)));
+        }
+        L.push("");
+        L.push("Revisó: " + "_".repeat(Math.max(6, W - 8)));
+        return L.concat(prFooter(W));
+      }
+      async function printDaily() {
+        let day = (gid("dailyDate") && gid("dailyDate").value) || cashDay();
+        printTextReport("Cuadre diario", dailyReportLines(dailyData(day, dailyMoves || (await loadDailyMoves())), prWidth()));
+      }
+
+      // --- Panel de caja: botones y tarjetas nuevas ---
+      const _renderCashDashboard200 = renderCashDashboard;
+      renderCashDashboard = function () {
+        _renderCashDashboard200();
+        let open = !!(cashSession && cashSession.status === "open"),
+          main = deviceIsMain();
+        if (gid("pcBtn")) gid("pcBtn").style.display = open && main ? "" : "none";
+        if (gid("printXBtn")) gid("printXBtn").style.display = open ? "" : "none";
+        if (gid("printZBtn")) gid("printZBtn").style.display = lastClosedForPrint || cashHistory.length ? "" : "none";
+        let pl = gid("cashLive");
+        if (pl && open) {
+          let pcs = sessionPartials(cashSession);
+          if (pcs.length)
+            pl.insertAdjacentHTML(
+              "beforeend",
+              '<h4 class="mini-title">Arqueos parciales</h4>' +
+                pcs
+                  .map(
+                    (p) =>
+                      '<div class="line muted"><span>' +
+                      esc(fmtDT(p.at)) +
+                      " · " +
+                      esc(personLabel(p.by, p.byName, p.operator)) +
+                      (p.note ? " · " + esc(p.note) : "") +
+                      "</span><strong>" +
+                      money(p.counted) +
+                      " (" +
+                      esc(diffInfo(p.difference).label) +
+                      ")</strong></div>",
+                  )
+                  .join(""),
+            );
+        }
+        let tg = gid("cashOldToggle");
+        if (tg) {
+          tg.style.display = epochCutMs() != null ? "" : "none";
+          tg.textContent = showOldCash ? "Ocultar periodos anteriores al reinicio" : "Ver periodos anteriores al reinicio";
+        }
+        renderShiftsCard();
+        scheduleDaily();
+      };
+
+      // --- Excel: hojas «Turnos», «Cuadre diario» y «Arqueos parciales» ---
+      const SHIFT_COLS = ["Turno ID", "Dispositivo", "Mesero", "Apertura", "Cierre", "Estado", "Cerrado por", "Ventas", "Total", "Propinas", "Efectivo cobrado", "Efectivo entregado", "Diferencia entrega", "Observaciones", "Revisión"],
+        DAILY_COLS = ["Fecha", "Ventas", "Total", "Sin propinas", "Propinas", "Efectivo", "Tarjeta", "Nequi", "Daviplata", "Transferencia", "Anuladas", "Valor anulado", "Ingresos", "Salidas", "Cajas cerradas", "Esperado (cierres)", "Contado (cierres)", "Diferencia (cierres)"],
+        PARTIAL_COLS = ["Caja ID", "Fecha", "Hora", "Esperado", "Contado", "Diferencia", "Responsable", "Observación"];
+      async function allShiftsForExport() {
+        let m = new Map();
+        shiftHistoryCache.forEach((s) => s && s.id && m.set(s.id, s));
+        if (curShift) m.set(curShift.id, curShift);
+        shiftsList.forEach((s) => s && s.id && m.set(s.id, s));
+        if (syncReady && deviceApproved && deviceIsMain()) {
+          try {
+            let snap = await withTimeout(cloudRoot().collection("shifts").get(), 10000);
+            snap.docs.forEach((d) => m.set(d.id, { ...d.data(), id: d.id }));
+          } catch (e) {
+            console.warn("Turnos del servidor no disponibles:", e && (e.code || e.message));
+          }
+        }
+        return [...m.values()].sort((a, b) => String(a.openedAt || "").localeCompare(String(b.openedAt || "")));
+      }
+      const _gatherCashExport200 = gatherCashExport;
+      gatherCashExport = async function () {
+        let r = await _gatherCashExport200(),
+          num = (v) => (v == null ? "No disponible" : Math.round(Number(v) || 0));
+        try {
+          let shifts = (await allShiftsForExport()).map((s) => {
+              let m = s.status === "closed" && s.summary ? s.summary : shiftSummary(s);
+              return {
+                "Turno ID": String(s.id).slice(0, 8),
+                Dispositivo: s.deviceName || v2DeviceName(s.deviceId),
+                Mesero: s.operator || "No disponible",
+                Apertura: fmtDT(s.openedAt),
+                Cierre: s.status === "closed" ? fmtDT(s.closedAt) : "Abierto",
+                Estado: s.status === "closed" ? "Cerrado" : "Abierto",
+                "Cerrado por": s.status !== "closed" ? "" : s.closeMode === "forced" ? "PC Main (forzado)" : "Equipo",
+                Ventas: m.salesCount || 0,
+                Total: num(m.total),
+                Propinas: num(m.tips),
+                "Efectivo cobrado": num(m.cashCollected),
+                "Efectivo entregado": s.cashDelivered == null ? "" : num(s.cashDelivered),
+                "Diferencia entrega": s.cashDifference == null ? "" : num(s.cashDifference),
+                Observaciones: [s.openingNote, s.closeNotes, s.forcedReason].filter(Boolean).join(" · "),
+                Revisión: s.reviewedAt ? fmtDT(s.reviewedAt) + (s.reviewNote ? " · " + s.reviewNote : "") : "",
+              };
+            }),
+            moves = await loadDailyMoves(),
+            days = new Set();
+          data.sales.forEach((s) => days.add(saleDay(s)));
+          allCashSessions().forEach((h) => {
+            days.add(dayKey(h.openedAt));
+            days.add(dayKey(h.closedAt));
+          });
+          moves.forEach((m) => days.add(dayKey(m.createdAt)));
+          let daily = [...days]
+              .filter(Boolean)
+              .sort()
+              .map((d) => {
+                let x = dailyData(d, moves);
+                return {
+                  Fecha: d,
+                  Ventas: x.salesCount,
+                  Total: num(x.total),
+                  "Sin propinas": num(x.subtotal),
+                  Propinas: num(x.tips),
+                  Efectivo: num(x.byMethod.Efectivo),
+                  Tarjeta: num(x.byMethod.Tarjeta),
+                  Nequi: num(x.byMethod.Nequi),
+                  Daviplata: num(x.byMethod.Daviplata),
+                  Transferencia: num(x.byMethod.Transferencia),
+                  Anuladas: x.voidedCount,
+                  "Valor anulado": num(x.voidedTotal),
+                  Ingresos: num(x.ins),
+                  Salidas: num(-x.outs),
+                  "Cajas cerradas": x.closedCount,
+                  "Esperado (cierres)": x.closedCount ? num(x.expected) : "",
+                  "Contado (cierres)": x.closedCount ? num(x.counted) : "",
+                  "Diferencia (cierres)": x.closedCount ? num(x.diff) : "",
+                };
+              }),
+            partials = [];
+          allCashSessions().forEach((h) =>
+            sessionPartials(h).forEach((p) => {
+              let d = new Date(p.at);
+              partials.push({
+                "Caja ID": String(h.id).slice(0, 8),
+                Fecha: Number.isFinite(d.getTime()) ? d.toLocaleDateString("es-CO") : "No disponible",
+                Hora: Number.isFinite(d.getTime()) ? d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : "No disponible",
+                Esperado: num(p.expected),
+                Contado: num(p.counted),
+                Diferencia: num(p.difference),
+                Responsable: personLabel(p.by, p.byName, p.operator),
+                Observación: p.note || "",
+              });
+            }),
+          );
+          r.extraSheets = [
+            ["Turnos", shifts, SHIFT_COLS],
+            ["Cuadre diario", daily, DAILY_COLS],
+            ["Arqueos parciales", partials, PARTIAL_COLS],
+          ];
+        } catch (e) {
+          console.warn("Hojas 2.0 del Excel:", e);
+        }
+        return r;
+      };
+
+      // --- Respaldo JSON: turnos, seguridad, política, época y licencia ---
+      const _buildBackupPayload200 = buildBackupPayload;
+      buildBackupPayload = async function () {
+        let p = await _buildBackupPayload200();
+        try {
+          p.extra = p.extra || {};
+          p.extra.v2 = {
+            shifts: await allShiftsForExport(),
+            currentShift: curShift || null,
+            partialCounts: partialLocal,
+            policy: posPolicy(),
+            historyEpoch: historyEpoch(),
+            license: licenseDoc ? { ...licenseDoc, verify: licenseVerify } : null,
+            device: {
+              deviceId: currentDeviceId(),
+              installId: secState.installId,
+              lastVerifiedAt: secState.lastVerifiedAt || null,
+              lock: secState.lock || null,
+            },
+          };
+        } catch (e) {
+          console.warn("Respaldo 2.0 incompleto:", e);
+        }
+        return p;
+      };
+      // Restauración: solo agrega turnos que falten y la política si no existe.
+      const _restoreExtras200 = BulletStore.restoreExtras;
+      BulletStore.restoreExtras = async function (x) {
+        await _restoreExtras200(x);
+        if (!x || !x.v2) return;
+        try {
+          let have = new Set(shiftHistoryCache.map((s) => s.id)),
+            add = (Array.isArray(x.v2.shifts) ? x.v2.shifts : []).filter((s) => s && s.id && !have.has(s.id));
+          if (add.length) {
+            shiftHistoryCache = shiftHistoryCache.concat(add).slice(0, 400);
+            await BulletStore.putMeta("shiftHistory", shiftHistoryCache);
+          }
+          if (x.v2.policy && !(data.settings && data.settings.policy)) {
+            data.settings.policy = x.v2.policy;
+            persist();
+          }
+          if (x.v2.partialCounts && typeof x.v2.partialCounts === "object") {
+            Object.keys(x.v2.partialCounts).forEach((k) => {
+              let cur = partialLocal[k] || [],
+                ids = new Set(cur.map((p) => p.id));
+              partialLocal[k] = cur.concat((x.v2.partialCounts[k] || []).filter((p) => p && p.id && !ids.has(p.id)));
+            });
+            await BulletStore.putMeta("partialCounts", partialLocal);
+          }
+        } catch (e) {
+          console.warn("Restauración 2.0:", e);
+        }
+      };
+
+      // --- Escuchas compartidas (política, época, licencia, turnos, estado) ---
+      let v2Unsubs = {};
+      function v2Listen(key, refFn, onNext) {
+        if (v2Unsubs[key] || !syncReady || !deviceApproved || !syncDb || window.__v2Drain) return;
+        try {
+          v2Unsubs[key] = refFn().onSnapshot(onNext, (e) => {
+            console.warn("Escucha " + key + ":", e && (e.code || e.message));
+            try {
+              v2Unsubs[key]();
+            } catch (x) {}
+            v2Unsubs[key] = null;
+          });
+        } catch (e) {
+          v2Unsubs[key] = null;
+        }
+      }
+      function startV2Listeners() {
+        v2Listen(
+          "policy",
+          () => cloudRoot().collection("control").doc("policy"),
+          (snap) => {
+            if (!snap.exists || opPending("control/policy")) return;
+            let d = snap.data();
+            data.settings.policy = {
+              requireShifts: d.requireShifts !== false,
+              secondaryLeaseHours: Number(d.secondaryLeaseHours) || DEFAULT_POLICY.secondaryLeaseHours,
+              mainLeaseHours: Number(d.mainLeaseHours) || DEFAULT_POLICY.mainLeaseHours,
+              diffNoteThreshold: Number(d.diffNoteThreshold) >= 0 ? Number(d.diffNoteThreshold) : DEFAULT_POLICY.diffNoteThreshold,
+              updatedAt: d.updatedAt || null,
+              updatedBy: d.updatedBy || null,
+            };
+            persist();
+            renderSecurityUI();
+          },
+        );
+        v2Listen("epoch", () => cloudRoot().collection("control").doc("historyEpoch"), onEpochSnap);
+        v2Listen("license", () => syncDb.collection("licenses").doc(V2_CAFE), onLicenseSnap);
+        if (deviceIsMain()) {
+          v2Listen("shifts", () => cloudRoot().collection("shifts").where("openedAtMs", ">=", Date.now() - 14 * 86400000), onShiftsSnap);
+          v2Listen(
+            "status",
+            () => cloudRoot().collection("deviceStatus"),
+            (snap) => {
+              v2Status = new Map(snap.docs.map((d) => [d.id, d.data({ serverTimestamps: "estimate" })]));
+              if (gid("ajustes") && gid("ajustes").classList.contains("active")) renderDevices();
+            },
+          );
+        } else watchOwnShift();
+      }
+      const _startCloudSync200 = startCloudSync;
+      startCloudSync = async function (fromRestore = false) {
+        if (secState.lock && secState.lock.wiped) {
+          setSyncStatus("Equipo bloqueado", lockTitle(secState.lock));
+          return;
+        }
+        await _startCloudSync200(fromRestore);
+        if (syncUser) watchOwnDevice();
+        if (syncReady && deviceApproved && !window.__v2Drain) {
+          startV2Listeners();
+          verifyDeviceOnline("inicio");
+        } else if (syncUser && navigator.onLine !== false) verifyDeviceOnline("pendiente");
+        renderSecurityUI();
+      };
+      const _claimSecondMain200 = claimSecondMain;
+      claimSecondMain = async function () {
+        await _claimSecondMain200();
+        if (deviceIsMain()) startV2Listeners();
+      };
+
+      // --- Interfaz: banner, indicadores del encabezado, tarjetas y panel ---
+      function renderSecBanner() {
+        let el = gid("secBanner");
+        if (!el) return;
+        let b = opBlock("new"),
+          le = leaseInfo(),
+          lic = licenseState(),
+          html = "",
+          bad = false;
+        if (b && b.code !== "lock") {
+          bad = b.code !== "shift";
+          html =
+            "<span>" +
+            (b.code === "shift" ? "🕒 " : "🔒 ") +
+            esc(b.msg) +
+            "</span>" +
+            (b.code === "shift"
+              ? '<button class="btn small primary" onclick="openShiftModal(\'open\')">Iniciar turno</button>'
+              : b.action === "verify"
+                ? '<button class="btn small primary" onclick="checkAuthorizationNow()">Verificar ahora</button>'
+                : '<button class="btn small" onclick="contactSupport()">Soporte</button>');
+        } else if (!b && le.applies && le.ok && !le.loading && le.left < 12 * 3600000) {
+          html = "<span>⏳ Este equipo debe conectarse a internet en " + esc(leftText(le.left)) + " para seguir vendiendo.</span>" + '<button class="btn small" onclick="checkAuthorizationNow()">Verificar ahora</button>';
+        } else if (!b && (lic.state === "grace" || lic.state === "expiring")) {
+          html = "<span>⚠ " + esc(lic.label) + ". Escribe a soporte para renovarla.</span>" + '<button class="btn small" onclick="contactSupport()">Soporte</button>';
+          bad = lic.state === "grace";
+        }
+        el.style.display = html ? "flex" : "none";
+        el.className = "cash-banner sec-banner" + (bad ? " bad" : "");
+        el.innerHTML = html;
+      }
+      function renderHeaderChips() {
+        let sc = gid("shiftChip"),
+          xc = gid("secChip");
+        if (sc) {
+          let show = shiftsRequired() || shiftOpen();
+          sc.style.display = show && !secState.lock ? "" : "none";
+          if (show) {
+            sc.className = "sync-chip " + (shiftOpen() ? "ok" : "pending");
+            sc.innerHTML = "<i></i><span>" + esc(shiftOpen() ? "Turno: " + (curShift.operator || "—") + " · " + shiftDuration(curShift) : "Sin turno · Iniciar") + "</span>";
+          }
+        }
+        if (xc) {
+          let lic = licenseState(),
+            le = leaseInfo(),
+            txt = "",
+            cls = "pending";
+          if (secState.lock) {
+            txt = "Equipo bloqueado";
+            cls = "bad";
+          } else if (lic.block) {
+            txt = { origin: "Copia no autorizada", expired: "Licencia vencida", suspended: "Licencia suspendida", invalid: "Licencia inválida" }[lic.state] || "Licencia bloqueada";
+            cls = "bad";
+          } else if (le.applies && !le.ok && !le.loading) {
+            txt = le.never ? "Sin autorizar" : "Verificación requerida";
+            cls = "bad";
+          } else if (lic.state === "grace" || lic.state === "expiring") txt = lic.state === "grace" ? "Licencia vencida (gracia)" : "Licencia por vencer";
+          else if (le.applies && le.ok && !le.loading && le.left < 12 * 3600000) txt = "Conectar en " + leftText(le.left);
+          xc.style.display = txt ? "" : "none";
+          xc.className = "sync-chip " + cls;
+          xc.innerHTML = "<i></i><span>" + esc(txt) + "</span>";
+        }
+      }
+      function securityPanelHtml() {
+        let le = leaseInfo(),
+          lic = licenseState(),
+          l = secState.lock;
+        const L = (a, b) => '<div class="line"><span>' + esc(a) + "</span><strong>" + esc(b) + "</strong></div>";
+        return (
+          '<div class="set-card"><h3>Seguridad de este dispositivo</h3><div class="cash-breakdown">' +
+          L("Estado", l ? lockTitle(l) : "Sin bloqueos") +
+          (le.applies
+            ? L("Autorización verificada con el servidor", secState.lastVerifiedAt ? fmtWhen(secState.lastVerifiedAt) : "Nunca") +
+              L("Puede operar sin conexión hasta", le.until ? fmtDT(le.until) + " (plazo " + leftText(leaseHours() * 3600000) + ")" : "Requiere verificación")
+            : L("Verificación offline", "No aplica (sin Firebase)")) +
+          L("Licencia", lic.label) +
+          L("Turno", shiftOpen() ? (curShift.operator || "—") + " desde " + fmtDT(curShift.openedAt) : shiftsRequired() ? "Sin turno (obligatorio para vender)" : "Sin turno") +
+          L("Instalación", String(secState.installId).slice(0, 8)) +
+          '</div><div class="actions" style="margin-top:8px"><button class="btn" onclick="checkAuthorizationNow()">Verificar autorización ahora</button>' +
+          (shiftsRequired() || shiftOpen() ? '<button class="btn" onclick="closeSyncPanel();openShiftModal()">' + (shiftOpen() ? "Cerrar turno" : "Iniciar turno") + "</button>" : "") +
+          "</div></div>"
+        );
+      }
+      const _renderSyncPanel200 = renderSyncPanel;
+      renderSyncPanel = function () {
+        _renderSyncPanel200();
+        let el = gid("syncPanelBody");
+        if (el) el.insertAdjacentHTML("afterbegin", securityPanelHtml());
+      };
+      function renderSecurityUI() {
+        try {
+          renderLockScreen();
+          renderSecBanner();
+          renderHeaderChips();
+          renderMyShiftCard();
+          let main = deviceIsMain();
+          ["policyCard", "resetCard"].forEach((id) => {
+            let c = gid(id);
+            if (c) c.style.display = main ? "block" : "none";
+          });
+          if (gid("ajustes") && gid("ajustes").classList.contains("active")) {
+            renderLicenseCard();
+            renderPolicyForm();
+            renderResetCard();
+          }
+          if (gid("shiftsCard")) gid("shiftsCard").style.display = main ? "block" : "none";
+          if (gid("caja") && gid("caja").classList.contains("active")) renderShiftsCard();
+        } catch (e) {
+          console.warn("Interfaz de seguridad:", e);
+        }
+      }
+      const _renderRoleUI200 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI200();
+        renderSecurityUI();
+        if (syncReady && deviceApproved && !window.__v2Drain) startV2Listeners();
+      };
+      const _renderSettings200 = renderSettings;
+      renderSettings = function () {
+        _renderSettings200();
+        renderLicenseCard();
+        renderPolicyForm();
+        renderResetCard();
+      };
+      const _renderCart200 = renderCart;
+      renderCart = function () {
+        _renderCart200();
+        renderSecBanner();
+      };
+      // Nombres de la auditoría y resumen de los registros nuevos.
+      Object.assign(AUDIT_LABEL, {
+        deviceRevoked: "Dispositivo revocado",
+        deviceLost: "Dispositivo reportado como perdido",
+        deviceReauthorized: "Dispositivo autorizado de nuevo",
+        deviceDrainExtended: "Plazo para enviar pendientes ampliado",
+        deviceInstallReset: "Instalación de dispositivo reconocida",
+        deviceLocked: "Bloqueo aplicado en un dispositivo",
+        deviceUnlocked: "Bloqueo retirado en un dispositivo",
+        deviceLimitReached: "Límite de dispositivos de la licencia",
+        clockRollback: "Reloj del dispositivo atrasado",
+        leaseExpired: "Plazo sin conexión vencido",
+        shiftOpened: "Turno iniciado",
+        shiftClosed: "Turno cerrado",
+        shiftForceClosed: "Turno cerrado por un PC Main",
+        shiftReviewed: "Entrega de turno confirmada",
+        historyReset: "Reinicio global de historial",
+        lateSalesAfterReset: "Ventas del periodo anterior recibidas tras el reinicio",
+        policyChanged: "Política de seguridad modificada",
+        licenseProblem: "Problema de licencia",
+        cashPartialCount: "Arqueo parcial de caja",
+      });
+      const _auditSummary200 = auditSummary;
+      auditSummary = function (d) {
+        d = d || {};
+        let base = _auditSummary200(d),
+          extra = [];
+        if (d.lockState) extra.push({ revoked: "revocado", lost: "perdido", clone: "instalación no reconocida" }[d.lockState] || d.lockState);
+        if (d.drainHours != null) extra.push(d.drainHours ? "puede enviar pendientes " + d.drainHours + " h" : "bloqueo total");
+        if (d.wipe != null) extra.push(d.wipe ? "con borrado remoto" : "sin borrado");
+        if (d.operatorName) extra.push("mesero " + d.operatorName);
+        if (d.shiftId) extra.push("turno " + String(d.shiftId).slice(0, 8));
+        if (d.cashCollected != null) extra.push("efectivo cobrado " + money(d.cashCollected) + (d.cashDelivered != null ? " · entregado " + money(d.cashDelivered) : ""));
+        if (d.count != null) extra.push(d.count + " venta(s)");
+        if (d.licenseState) extra.push("licencia: " + d.licenseState);
+        if (d.max != null) extra.push("máximo " + d.max);
+        if (d.deviceTime) extra.push("hora del equipo " + fmtDT(d.deviceTime) + " (antes " + fmtDT(d.lastKnown) + ")");
+        return [base].concat(extra).filter(Boolean).join(" · ");
+      };
+
+      // --- Temporizadores y eventos ---
+      setInterval(() => {
+        if (!secMerged) return;
+        clockTick();
+        let l = secState.lock;
+        if (l && l.state === "revoked" && window.__v2Drain && !(Number(l.drainUntil) > Date.now())) {
+          deviceApproved = false;
+          window.__v2Drain = false;
+        }
+        let le = leaseInfo();
+        if (le.applies && !le.ok && !le.never && !le.loading && !secState.leaseExpiredNotified) {
+          secState.leaseExpiredNotified = true;
+          saveSec();
+          BulletAudit.record("leaseExpired", { hours: leaseHours(), verifiedAt: new Date(le.at).toISOString() });
+        }
+        if (syncUser && navigator.onLine !== false && Date.now() - (Number(secState.lastVerifyTry) || 0) > 30 * 60000) verifyDeviceOnline("periodico");
+        if (syncReady && deviceApproved && !window.__v2Drain) startV2Listeners();
+        renderSecurityUI();
+      }, 60000);
+      window.addEventListener("online", () => setTimeout(() => verifyDeviceOnline("online").then(renderSecurityUI), 3000));
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && syncUser && Date.now() - (Number(secState.lastVerifyTry) || 0) > 10 * 60000)
+          verifyDeviceOnline("visible").then(renderSecurityUI);
+      });
+      // Fusión con la copia de IndexedDB y migración desde 1.9.0.
+      BulletStore.ready.then(async () => {
+        let m = null;
+        try {
+          m = await BulletStore.getMeta("security");
+        } catch (e) {}
+        if (m && typeof m === "object") {
+          if (m.installId && !SEC_HAD_LS) {
+            secState.installId = m.installId;
+            secState.installCreatedAt = m.installCreatedAt || secState.installCreatedAt;
+          }
+          if (m.lock && (!secState.lock || m.lock.wiped)) secState.lock = m.lock;
+          let a = Number(secState.lastVerifiedAt) || 0,
+            b = Number(m.lastVerifiedAt) || 0;
+          if (a && b) secState.lastVerifiedAt = Math.min(a, b);
+          else if (b) secState.lastVerifiedAt = b;
+          secState.maxClock = Math.max(Number(secState.maxClock) || 0, Number(m.maxClock) || 0);
+          if (m.v2init && !secState.v2init) secState.v2init = m.v2init;
+          if (m.license && (!secState.license || (m.license.checkedAt || 0) > (secState.license.checkedAt || 0))) {
+            secState.license = m.license;
+            licenseDoc = m.license.doc || null;
+            licenseVerify = m.license.verify || "none";
+          }
+          if (m.clockRollbackNotified) secState.clockRollbackNotified = true;
+        }
+        if (!secState.v2init) {
+          secState.v2init = Date.now();
+          // Un equipo que ya sincronizaba con 1.9.0 recibe un primer plazo
+          // completo: no se bloquea por actualizar estando sin internet.
+          let prior = false;
+          try {
+            prior = !!localStorage.getItem(LAST_UID_KEY);
+          } catch (e) {}
+          if (prior && !secState.lastVerifiedAt) secState.lastVerifiedAt = Date.now();
+        }
+        secMerged = true;
+        clockTick();
+        await reverifyCachedLicense();
+        enforceLock();
+        renderSecurityUI();
+        // Tras la carga inicial, lo que se archive por la época son ventas tardías.
+        setTimeout(() => {
+          let e = historyEpoch();
+          if (e && epochBulkDone === null) epochBulkDone = e.id;
+        }, 8000);
+      });
+      // Contenido estático de las ventanas nuevas.
+      if (gid("closeDenomGrid")) gid("closeDenomGrid").innerHTML = denomGridHtml("dnC");
+      renderLockScreen();
+      renderSecurityUI();
+
       renderArchiveLog();
 
       renderProducts();

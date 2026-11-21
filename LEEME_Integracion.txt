@@ -1,6 +1,146 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.0.0 (seguridad de dispositivos, turnos, licencias, reinicio global y caja)
+------------------------------------------------------------------------------------
+Incluye todo lo de 1.9.0 y anteriores. Cambian index.html, sw.js y
+firestore.rules, y se agrega herramientas/emisor-licencias.html.
+
+ORDEN OBLIGATORIO
+1. En el PC Main pulsa «Respaldo JSON» y guarda el archivo.
+2. Firebase Console > Firestore > Rules: pega firestore.rules (2.0.0) y
+   publica. Sin estas reglas los turnos y el reinicio global no se sincronizan.
+3. Sube a la raíz del repositorio: index.html, sw.js, firestore.rules,
+   LEEME_Integracion.txt y la carpeta herramientas/.
+4. Abre la app con internet en TODOS los dispositivos y recárgala una vez
+   (el Service Worker nuevo es bullet-pos-v2.0.0).
+5. Si un mesero tenía la app abierta sin internet: al actualizarse, su equipo
+   recibe un primer plazo completo para seguir vendiendo (no se bloquea).
+
+1. Reinicio global de historial (Ajustes > Reinicio global de historial)
+- Empieza un periodo nuevo en todos los dispositivos a la vez. NO borra
+  ventas: las anteriores quedan archivadas en Firebase, en IndexedDB y en los
+  respaldos, igual que el archivado mensual.
+- Antes descarga automáticamente un respaldo JSON y un Excel completos.
+- Requisitos: PC Main con internet, contraseña, escribir REINICIAR, sin mesas
+  abiertas, sin operaciones pendientes en ese equipo y caja recién abierta sin
+  ventas (cierra la caja primero; el cierre abre la nueva).
+- Avisa (sin impedirlo) si hay equipos desconectados o turnos abiertos. Las
+  ventas de un equipo que estaba sin conexión llegan después, se archivan con
+  el periodo anterior y quedan en la auditoría.
+- La auditoría y los cierres de caja se conservan. En Caja > Historial de
+  cajas, «Ver periodos anteriores al reinicio» muestra las cajas viejas.
+
+2. Turnos de dispositivos secundarios
+- Un mesero inicia turno con su nombre antes de vender (indicador en el
+  encabezado o Historial > Mi turno). Funciona sin internet.
+- Cada venta queda asociada al turno. Al cerrar se ve lo cobrado por medio de
+  pago, las propinas y el efectivo a entregar; opcionalmente el efectivo
+  entregado y la diferencia. Se puede imprimir el resumen.
+- PC Main (Caja > Turnos de meseros): turnos abiertos con sus ventas en vivo,
+  «Cerrar turno» (con contraseña y motivo) y «Confirmar entrega».
+- El cierre de caja avisa si quedan turnos abiertos.
+- Se pueden volver opcionales en Ajustes > Seguridad y operación.
+
+3. Revocación remota (Ajustes > Dispositivos > Revocar)
+- Pide contraseña y motivo. El equipo se bloquea en cuanto se conecta: ya no
+  vende ni modifica mesas. Si se acepta, durante 24 h puede terminar de enviar
+  lo que ya registró (sus ventas nunca se pierden). «Permitir envío de
+  pendientes» da 24 h más. Si el equipo era PC Main, pierde ese rol.
+- «Autorizar de nuevo» lo reactiva.
+
+4. Dispositivo perdido (Ajustes > Dispositivos > Perdido)
+- Bloqueo sin plazo. Opcionalmente borra los datos del negocio del equipo
+  cuando vuelva a conectarse (se muestran antes sus ventas sin enviar según su
+  último reporte: si se borra, esas se pierden).
+- Si era PC Main, sale de la lista de Main y se ofrece cambiar la contraseña
+  administrativa (recomendado).
+- La lista muestra cuándo el equipo recibió el bloqueo y cuándo se borró.
+
+5. Licencias
+- La licencia vive en licenses/{cafeId}. Según las reglas, SOLO la cuenta del
+  proveedor (Google, thebulletes@gmail.com, correo verificado) puede
+  escribirla; ningún equipo del negocio puede modificarla.
+- Sin licencia: modo compatibilidad, todo funciona como en 1.9.0.
+- Con licencia: Ajustes > Licencia muestra titular, plan, vencimiento,
+  dispositivos usados/permitidos y direcciones autorizadas. Avisos desde 15
+  días antes y durante los días de gracia.
+- Vencida (después de la gracia) o suspendida: se bloquean ventas nuevas,
+  apertura de caja, nuevos turnos y autorización de equipos. Siguen
+  funcionando el historial, respaldos, Excel, el cierre de caja, cobrar mesas
+  ya abiertas y el envío de lo ya registrado. Nunca se retienen los datos.
+- Límites: máximo de dispositivos activos y de PC Main (1 o 2).
+
+  Emitir una licencia (proveedor):
+  a. Abre herramientas/emisor-licencias.html (desde la URL de GitHub Pages).
+  b. «Generar par de claves nuevo» (una sola vez). Guarda el archivo de clave
+     PRIVADA fuera del repositorio. Copia la línea de la clave pública dentro
+     de LICENSE_PUBLIC_KEYS = { } en index.html y publica index.html.
+  c. Completa los datos, «Firmar licencia», inicia sesión con Google y
+     «Publicar licencia firmada». Requiere activar el proveedor «Google» en
+     Firebase Console > Authentication > Sign-in method.
+  Si index.html no tiene claves públicas, la licencia se acepta solo cuando la
+  entrega el servidor (sin firma). Con claves, una copia local alterada se
+  detecta como inválida.
+
+6. Protección frente a copias no autorizadas
+- La licencia indica el negocio (cafeId) y las direcciones (origins) donde
+  puede funcionar. Desde otra dirección o abierta como archivo local, la app
+  muestra «Copia no autorizada» y no registra ventas (los respaldos siguen
+  disponibles para no retener datos).
+- Cada instalación se vincula a su equipo. Si la identidad de un equipo
+  aparece en otra instalación (navegador copiado o restaurado), ese equipo se
+  bloquea y el PC Main lo ve como «Instalación distinta»; «Reconocer
+  instalación» lo resuelve si el equipo es tuyo.
+- Recomendado en Firebase Console > Authentication > Settings > Authorized
+  domains: deja solo tu dominio de GitHub Pages (quita localhost en
+  producción). En Google Cloud Console > Credenciales, restringe la API key a
+  ese dominio (HTTP referrers). Esto es lo que impide de verdad que otra copia
+  use tu base de datos.
+
+7. Seguridad Offline First controlada (Ajustes > Seguridad y operación)
+- Sin conexión, un equipo puede vender durante un tiempo máximo desde su
+  última verificación con el servidor: 72 h los secundarios y 7 días los PC
+  Main (configurable de 24 h a 30 días). Después debe conectarse; mientras
+  tanto puede terminar de cobrar las mesas ya abiertas.
+- Atrasar el reloj del equipo no alarga el plazo (y queda en la auditoría).
+- Un equipo nuevo sin autorizar ya no puede vender hasta que el PC Main lo
+  autorice (en 1.9.0 podía vender localmente mientras esperaba).
+- Los bloqueos se guardan en localStorage y en IndexedDB: borrar solo uno no
+  los quita. Borrar todos los datos del sitio también borra la identidad del
+  equipo en Firebase, que vuelve a quedar pendiente de autorización.
+- Ver el estado: indicador de sincronización > «Seguridad de este dispositivo».
+
+8. Caja profesional
+- Cierre: conteo opcional por denominaciones (billetes y monedas COP) que
+  completa el efectivo contado; se guarda con el cierre. Si la diferencia
+  supera el valor configurado (5.000 por defecto), la observación es
+  obligatoria.
+- Arqueo parcial (corte X): cuenta el efectivo sin cerrar la caja; queda
+  registrado con el esperado de ese momento.
+- Impresión: «Imprimir corte X» (caja abierta) y «Reporte Z» de cada cierre,
+  con firma, denominaciones, arqueos y turnos.
+- Cuadre diario: por fecha, ventas por medio de pago, propinas, anuladas,
+  movimientos, cierres del día con su diferencia total y ventas por persona.
+  Se puede imprimir.
+- Movimientos con categoría (caja fuerte, proveedor, gasto, propinas
+  entregadas, etc.).
+- Excel: nuevas hojas «Turnos», «Cuadre diario» y «Arqueos parciales»; la hoja
+  «Movimientos de Caja» agrega la columna «Categoría».
+- Respaldo JSON (sigue siendo versión 2): agrega turnos, arqueos, política,
+  época de historial y estado de seguridad. La restauración solo agrega.
+
+LIMITACIONES (importante)
+- Un equipo perdido que nunca vuelve a conectarse no puede borrarse a
+  distancia; el plazo sin conexión limita cuánto tiempo sigue vendiendo.
+- Las protecciones dentro de la app (licencia, origen, plazo) disuaden, pero
+  quien modifique el código podría saltárselas en su copia. La protección de
+  los datos la dan las reglas de Firestore, la autorización de cada equipo y
+  las restricciones de dominio de Firebase/Google Cloud.
+- El límite de dispositivos de la licencia lo aplica la app del PC Main; las
+  reglas exigen que la licencia esté vigente para autorizar equipos, pero no
+  cuentan los equipos.
+
 VERSIÓN 1.9.0 (jornada de caja: abrir, operar, registrar, cerrar, cuadrar)
 --------------------------------------------------------------------------
 Incluye todo lo de 1.8.1, 1.8.0, 1.7.0 y 1.6.0. Solo cambian index.html y
@@ -177,6 +317,9 @@ BulletCoffeShop.html   Copia con el mismo código, útil para preparar/exportar
                        el respaldo desde el archivo local.
 firebase-config.js     Aquí se pega la configuración pública de tu app Firebase.
 firestore.rules        Reglas de seguridad que debes publicar en Firebase.
+herramientas/emisor-licencias.html
+                       (2.0.0) Herramienta del proveedor para generar claves,
+                       firmar y publicar licencias. No guarda la clave privada.
 
 IMPORTANTE ANTES DE EMPEZAR
 ---------------------------

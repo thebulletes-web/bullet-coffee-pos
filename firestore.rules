@@ -1,9 +1,20 @@
 rules_version = '2';
-// Bullet POS 1.8.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.0.0 — Reglas de seguridad de Firestore.
 // Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
 // autorizados de ESE negocio (devices/{uid}.active == true) pueden usarlos.
 // PC Main: UID incluido en control/admin.mainDeviceIds (máximo 2), o
 // control/admin.mainDeviceId en configuraciones anteriores.
+//
+// 2.0.0 agrega (todo lo de 1.8.0 se conserva):
+// - Equipo revocado con plazo (devices/{uid}.drainUntil): ya no opera, pero
+//   puede terminar de enviar sus ventas, auditoría, turnos y estado.
+// - Dispositivo perdido (lost == true): sin plazo; solo puede confirmar el
+//   bloqueo y el borrado (lockSeenAt, wipedAt).
+// - Vinculación de instalación (installId) que el propio equipo escribe una vez.
+// - Turnos (shifts), historial de reinicios (historyResets).
+// - Licencia (licenses/{cafeId}): solo la escribe la cuenta del proveedor.
+//   Si existe, autorizar dispositivos y abrir turnos exige que esté vigente.
+//   Sin documento de licencia se mantiene el comportamiento de 1.9.0.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -43,6 +54,39 @@ service cloud.firestore {
       return isMain(cafeId) || (approvedDevice(cafeId) && !exists(adminPath(cafeId)));
     }
 
+    // --- 2.0.0: equipo revocado que aún puede enviar lo que ya registró ---
+    function drainingDevice(cafeId) {
+      return signedIn()
+        && exists(devicePath(cafeId))
+        && get(devicePath(cafeId)).data.get('active', false) == false
+        && get(devicePath(cafeId)).data.get('lost', false) != true
+        && get(devicePath(cafeId)).data.get('drainUntil', null) is timestamp
+        && get(devicePath(cafeId)).data.drainUntil > request.time;
+    }
+    function canSend(cafeId) {
+      return approvedDevice(cafeId) || drainingDevice(cafeId);
+    }
+
+    // --- 2.0.0: licencia del proveedor ---
+    // Cuenta del proveedor: inicio de sesión con Google y correo verificado.
+    function isVendor() {
+      return signedIn()
+        && request.auth.token.get('email', '') == 'thebulletes@gmail.com'
+        && request.auth.token.get('email_verified', false) == true;
+    }
+    function licensePath(cafeId) {
+      return /databases/$(database)/documents/licenses/$(cafeId);
+    }
+    function licenseValid(l) {
+      return l.get('status', 'active') == 'active'
+        && l.get('expiresAtTs', null) is timestamp
+        && l.expiresAtTs + duration.value(l.get('graceDays', 7), 'd') > request.time;
+    }
+    // Sin documento de licencia: modo compatibilidad (igual que 1.9.0).
+    function licenseOk(cafeId) {
+      return !exists(licensePath(cafeId)) || licenseValid(get(licensePath(cafeId)).data);
+    }
+
     // --- Sumas de pagos (máximo 8 pagos por venta) ---
     function amt(p, i) {
       return p.size() > i ? p[i].amount : 0;
@@ -57,19 +101,34 @@ service cloud.firestore {
       allow get: if signedIn() && (request.auth.uid == deviceId || isMainOrBootstrap(cafeId));
       allow list: if isMainOrBootstrap(cafeId);
       // Un equipo nuevo solo puede pedir acceso (siempre inactivo).
-      allow create: if isMainOrBootstrap(cafeId)
+      // 2.0.0: crear un equipo ya activo exige una licencia vigente (o ninguna).
+      allow create: if (isMainOrBootstrap(cafeId)
+            && (request.resource.data.get('active', false) != true || licenseOk(cafeId)))
         || (signedIn() && request.auth.uid == deviceId
             && request.resource.data.active == false
             && request.resource.data.keys().hasOnly(['active', 'requestedAt', 'ua']));
       // Autorizar, revocar y nombrar: PC Main. Un equipo solo puede marcarse
       // como "main" en la misma operación en que una vinculación válida lo
       // agregó a la lista de Main (ver control/mainPairing).
-      allow update: if isMainOrBootstrap(cafeId)
+      // 2.0.0: activar un equipo inactivo exige una licencia vigente (o ninguna).
+      allow update: if (isMainOrBootstrap(cafeId)
+            && (request.resource.data.get('active', false) != true
+                || resource.data.get('active', false) == true
+                || licenseOk(cafeId)))
         || (signedIn() && request.auth.uid == deviceId
             && resource.data.active == true
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'mainSince'])
             && request.resource.data.role == 'main'
-            && request.auth.uid in getAfter(adminPath(cafeId)).data.get('mainDeviceIds', []));
+            && request.auth.uid in getAfter(adminPath(cafeId)).data.get('mainDeviceIds', []))
+        // 2.0.0: el equipo registra su instalación una sola vez (el PC Main
+        // puede borrarla con «Reconocer instalación»).
+        || (signedIn() && request.auth.uid == deviceId
+            && resource.data.get('installId', null) == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['installId', 'installBoundAt']))
+        // 2.0.0: un equipo revocado o perdido solo confirma el bloqueo/borrado.
+        || (signedIn() && request.auth.uid == deviceId
+            && resource.data.get('active', false) == false
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lockSeenAt', 'wipedAt']));
       allow delete: if isMainOrBootstrap(cafeId);
     }
 
@@ -88,8 +147,9 @@ service cloud.firestore {
       // Cada dispositivo registra sus propias ventas, nunca anuladas. Si la
       // venta cobra una mesa, su ID es el paymentOperationId (idempotencia) y
       // la suma de los pagos debe cubrir el total.
+      // 2.0.0: un equipo revocado con plazo puede terminar de enviar sus ventas.
       allow create: if isMainOrBootstrap(cafeId)
-        || (approvedDevice(cafeId)
+        || (canSend(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.total is number
             && request.resource.data.items is list
@@ -101,7 +161,7 @@ service cloud.firestore {
       // Anular, corregir el pago o archivar: solo el PC Main. El dueño de la
       // venta solo puede reenviarla sin cambios (reintento idempotente).
       allow update: if isMainOrBootstrap(cafeId)
-        || (approvedDevice(cafeId)
+        || (canSend(cafeId)
             && resource.data.deviceId == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().size() == 0);
       // Las ventas nunca se eliminan (se anulan o archivan).
@@ -285,7 +345,7 @@ service cloud.firestore {
     // --- Reporte de estado de cada dispositivo (supervisión de los Main) ---
     match /cafeterias/{cafeId}/deviceStatus/{deviceId} {
       allow read: if isMainOrBootstrap(cafeId);
-      allow create, update: if approvedDevice(cafeId)
+      allow create, update: if canSend(cafeId)
         && request.auth.uid == deviceId
         && request.resource.data.deviceId == request.auth.uid;
       allow delete: if isMainOrBootstrap(cafeId);
@@ -294,12 +354,57 @@ service cloud.firestore {
     // --- Auditoría: solo se agregan registros; cualquier Main la consulta ---
     match /cafeterias/{cafeId}/audit/{entryId} {
       allow read: if isMain(cafeId);
-      allow create: if approvedDevice(cafeId)
+      allow create: if canSend(cafeId)
         && request.resource.data.by == request.auth.uid;
       // Reintento idempotente: reescribir exactamente el mismo contenido.
-      allow update: if approvedDevice(cafeId)
+      allow update: if canSend(cafeId)
         && request.resource.data == resource.data;
       allow delete: if false;
+    }
+
+    // --- 2.0.0: turnos de los dispositivos secundarios ---
+    // Cada equipo abre y cierra sus propios turnos (la cola puede enviar el
+    // turno ya cerrado si se abrió y cerró sin conexión). Un turno cerrado no
+    // cambia, salvo la confirmación de entrega que registra un PC Main.
+    match /cafeterias/{cafeId}/shifts/{shiftId} {
+      allow get: if isMainOrBootstrap(cafeId)
+        || (canSend(cafeId) && (resource == null || resource.data.deviceId == request.auth.uid));
+      allow list: if isMainOrBootstrap(cafeId);
+      allow create: if (isMainOrBootstrap(cafeId) && request.resource.data.id == shiftId)
+        || (approvedDevice(cafeId) && licenseOk(cafeId)
+            && request.resource.data.deviceId == request.auth.uid
+            && request.resource.data.id == shiftId
+            && request.resource.data.status in ['open', 'closed']);
+      allow update: if (isMainOrBootstrap(cafeId)
+            && request.resource.data.id == shiftId
+            && (resource.data.status == 'open'
+                || request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['reviewedAt', 'reviewedBy', 'reviewedByName', 'reviewNote'])))
+        || (canSend(cafeId)
+            && resource.data.deviceId == request.auth.uid
+            && request.resource.data.deviceId == request.auth.uid
+            && request.resource.data.id == shiftId
+            && (resource.data.status == 'open' || request.resource.data == resource.data));
+      allow delete: if false;
+    }
+
+    // --- 2.0.0: historial de reinicios globales (la época vigente está en
+    // control/historyEpoch, que ya cubren las reglas de control) ---
+    match /cafeterias/{cafeId}/historyResets/{resetId} {
+      allow read: if isMain(cafeId);
+      allow create: if isMain(cafeId) && request.resource.data.id == resetId;
+      allow update, delete: if false;
+    }
+
+    // --- 2.0.0: licencia del negocio (solo la escribe el proveedor) ---
+    match /licenses/{cafeId} {
+      allow read: if approvedDevice(cafeId) || isVendor();
+      allow create, update: if isVendor()
+        && request.resource.data.cafeId == cafeId
+        && request.resource.data.expiresAtTs is timestamp
+        && request.resource.data.graceDays is int
+        && request.resource.data.status in ['active', 'suspended'];
+      allow delete: if isVendor();
     }
 
     // Todo lo demás queda denegado.

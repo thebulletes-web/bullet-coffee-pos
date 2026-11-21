@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Bullet POS · Emisor de licencias (proveedor)</title>
+    <style>
+      :root {
+        --ink: #20312d;
+        --muted: #71807a;
+        --green: #173c35;
+        --cream: #f5f3ed;
+        --paper: #fffefa;
+        --line: #e6e5dc;
+        --red: #b94b42;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--cream);
+        color: var(--ink);
+      }
+      header {
+        background: var(--green);
+        color: #fff;
+        padding: 14px 20px;
+        font-weight: 800;
+      }
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 18px;
+      }
+      section {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin-bottom: 14px;
+      }
+      h2 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .warn {
+        background: #fdf3e8;
+        color: #8a4b20;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 13px;
+        margin: 10px 0;
+      }
+      .bad {
+        background: #fae9e7;
+        color: var(--red);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        font: inherit;
+        background: #fff;
+      }
+      textarea {
+        font: 12px ui-monospace, Consolas, monospace;
+        min-height: 90px;
+      }
+      .wide {
+        grid-column: 1 / -1;
+      }
+      button {
+        padding: 9px 14px;
+        border-radius: 9px;
+        border: 1px solid var(--line);
+        background: #fff;
+        font-weight: 700;
+        cursor: pointer;
+        margin: 8px 6px 0 0;
+      }
+      button.primary {
+        background: var(--green);
+        color: #fff;
+        border-color: var(--green);
+      }
+      pre {
+        background: #f3f2ec;
+        border-radius: 9px;
+        padding: 10px;
+        font: 12px ui-monospace, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <header>BULLET POS · Emisor de licencias (solo proveedor)</header>
+    <main>
+      <div class="warn">
+        Esta herramienta es para el proveedor de Bullet POS. La clave privada se
+        genera y se usa solo en este navegador: guárdala fuera del repositorio y
+        de GitHub Pages (por ejemplo, en una memoria USB). Quien tenga la clave
+        privada puede emitir licencias válidas.
+      </div>
+
+      <section>
+        <h2>1. Clave del proveedor</h2>
+        <div class="sub">
+          Se genera una sola vez. La clave pública se pega en
+          <code>LICENSE_PUBLIC_KEYS</code> dentro de <code>index.html</code>; la
+          privada queda en el archivo descargado.
+        </div>
+        <button class="primary" onclick="genKeys()">Generar par de claves nuevo</button>
+        <label style="margin-top: 12px" for="keyFile">Cargar clave privada guardada (.json)</label>
+        <input id="keyFile" type="file" accept=".json,application/json" onchange="loadKey(event)" />
+        <div id="keyState" class="sub" style="margin-top: 8px">Sin clave cargada: la licencia se publicará sin firma.</div>
+        <pre id="pubSnippet" style="display: none"></pre>
+      </section>
+
+      <section>
+        <h2>2. Datos de la licencia</h2>
+        <div class="grid">
+          <div>
+            <label for="cafeId">Negocio (cafeId de firebase-config.js)</label>
+            <input id="cafeId" />
+          </div>
+          <div>
+            <label for="holder">Titular (nombre del negocio)</label>
+            <input id="holder" maxlength="80" />
+          </div>
+          <div>
+            <label for="licenseId">Número de licencia</label>
+            <input id="licenseId" maxlength="40" />
+          </div>
+          <div>
+            <label for="plan">Plan</label>
+            <input id="plan" value="profesional" maxlength="40" />
+          </div>
+          <div>
+            <label for="maxDevices">Máximo de dispositivos activos (0 = sin límite)</label>
+            <input id="maxDevices" type="number" min="0" step="1" value="5" />
+          </div>
+          <div>
+            <label for="maxMains">Máximo de PC Main</label>
+            <select id="maxMains"><option value="2">2</option><option value="1">1</option></select>
+          </div>
+          <div>
+            <label for="expiresAt">Vence el</label>
+            <input id="expiresAt" type="date" />
+          </div>
+          <div>
+            <label for="graceDays">Días de gracia después del vencimiento</label>
+            <input id="graceDays" type="number" min="0" max="60" step="1" value="7" />
+          </div>
+          <div>
+            <label for="status">Estado</label>
+            <select id="status"><option value="active">Activa</option><option value="suspended">Suspendida</option></select>
+          </div>
+          <div class="wide">
+            <label for="origins">Direcciones autorizadas (una por línea, ej. https://usuario.github.io). Vacío = cualquiera</label>
+            <textarea id="origins" placeholder="https://usuario.github.io"></textarea>
+          </div>
+        </div>
+        <button class="primary" onclick="signLicense()">Firmar licencia</button>
+        <div id="signState" class="sub"></div>
+        <pre id="licOut" style="display: none"></pre>
+      </section>
+
+      <section>
+        <h2>3. Publicar en Firebase</h2>
+        <div class="sub">
+          Usa la configuración de <code>../firebase-config.js</code>. Requiere
+          activar el proveedor «Google» en Firebase Authentication y entrar con la
+          cuenta del proveedor (la que figura en <code>isVendor()</code> de
+          firestore.rules).
+        </div>
+        <button onclick="vendorSignIn()">Iniciar sesión con Google</button
+        ><button class="primary" onclick="publishLicense()">Publicar licencia firmada</button
+        ><button onclick="readLicense()">Leer licencia actual</button>
+        <div id="pubState" class="sub" style="margin-top: 8px"></div>
+        <pre id="curOut" style="display: none"></pre>
+      </section>
+    </main>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="../firebase-config.js"></script>
+    <script>
+      // Debe coincidir exactamente con la verificación de index.html
+      // (stableStr + LICENSE_FIELDS, ECDSA P-256 / SHA-256, firma en base64url).
+      const FIELDS = ["v", "licenseId", "cafeId", "holder", "plan", "maxDevices", "maxMains", "origins", "issuedAt", "expiresAt", "graceDays", "status"];
+      let key = null,
+        signed = null;
+      const $ = (id) => document.getElementById(id);
+      function stableStr(v) {
+        if (Array.isArray(v)) return "[" + v.map(stableStr).join(",") + "]";
+        if (v && typeof v === "object")
+          return (
+            "{" +
+            Object.keys(v)
+              .filter((k) => v[k] !== undefined)
+              .sort()
+              .map((k) => JSON.stringify(k) + ":" + stableStr(v[k]))
+              .join(",") +
+            "}"
+          );
+        return JSON.stringify(v === undefined ? null : v);
+      }
+      const b64url = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      function download(name, text) {
+        let a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+      function showPub() {
+        let p = key.publicJwk;
+        $("pubSnippet").style.display = "block";
+        $("pubSnippet").textContent =
+          "// Pega esta línea dentro de LICENSE_PUBLIC_KEYS = { ... } en index.html:\n" +
+          JSON.stringify(key.keyId) +
+          ": " +
+          JSON.stringify({ kty: p.kty, crv: p.crv, x: p.x, y: p.y }) +
+          ",";
+        $("keyState").textContent = "Clave cargada: " + key.keyId + " (creada " + new Date(key.createdAt).toLocaleString("es-CO") + ")";
+      }
+      async function genKeys() {
+        if (key && !confirm("Ya hay una clave cargada. ¿Generar otra? Las licencias firmadas con la anterior seguirán valiendo solo si su clave pública sigue en index.html.")) return;
+        let kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]),
+          id = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
+        key = {
+          format: "bullet-pos-license-key",
+          keyId: id,
+          createdAt: new Date().toISOString(),
+          privateJwk: await crypto.subtle.exportKey("jwk", kp.privateKey),
+          publicJwk: await crypto.subtle.exportKey("jwk", kp.publicKey),
+        };
+        download("bullet-licencias-CLAVE-PRIVADA-" + id + ".json", JSON.stringify(key, null, 2));
+        showPub();
+        alert("Se descargó la clave PRIVADA. Guárdala fuera del repositorio y no la compartas.\n\nCopia la línea de la clave pública en index.html.");
+      }
+      function loadKey(ev) {
+        let f = ev.target.files && ev.target.files[0];
+        if (!f) return;
+        let r = new FileReader();
+        r.onload = () => {
+          try {
+            let k = JSON.parse(r.result);
+            if (k.format !== "bullet-pos-license-key" || !k.privateJwk || !k.publicJwk || !k.keyId) throw new Error("No es una clave de licencias de Bullet POS");
+            key = k;
+            showPub();
+          } catch (e) {
+            alert("No se pudo cargar la clave: " + e.message);
+          }
+          ev.target.value = "";
+        };
+        r.readAsText(f);
+      }
+      function readForm() {
+        let exp = $("expiresAt").value;
+        if (!$("cafeId").value.trim()) throw new Error("Escribe el cafeId");
+        if (!exp) throw new Error("Elige la fecha de vencimiento");
+        let lic = {
+          v: 1,
+          licenseId: $("licenseId").value.trim() || "BP-" + Date.now().toString(36).toUpperCase(),
+          cafeId: $("cafeId").value.trim(),
+          holder: $("holder").value.trim(),
+          plan: $("plan").value.trim(),
+          maxDevices: Math.max(0, Math.floor(Number($("maxDevices").value) || 0)),
+          maxMains: Number($("maxMains").value) === 1 ? 1 : 2,
+          origins: $("origins")
+            .value.split(/\s+/)
+            .map((x) => x.trim().replace(/\/+$/, ""))
+            .filter(Boolean),
+          issuedAt: new Date().toISOString(),
+          // Vence al final del día elegido (hora local del proveedor).
+          expiresAt: new Date(exp + "T23:59:59").toISOString(),
+          graceDays: Math.max(0, Math.min(60, Math.floor(Number($("graceDays").value) || 0))),
+          status: $("status").value === "suspended" ? "suspended" : "active",
+        };
+        lic.origins.forEach((o) => {
+          if (!/^https?:\/\/[^/]+$/.test(o)) throw new Error("Dirección no válida (solo esquema y dominio): " + o);
+        });
+        $("licenseId").value = lic.licenseId;
+        return lic;
+      }
+      async function signLicense() {
+        let lic;
+        try {
+          lic = readForm();
+        } catch (e) {
+          alert(e.message);
+          return;
+        }
+        let payload = {};
+        FIELDS.forEach((k) => (payload[k] = lic[k]));
+        let doc = { ...payload };
+        if (key) {
+          let pk = await crypto.subtle.importKey("jwk", key.privateJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]),
+            data = new TextEncoder().encode(stableStr(payload)),
+            sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pk, data)),
+            pub = await crypto.subtle.importKey("jwk", key.publicJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+          doc.sig = b64url(sig);
+          doc.keyId = key.keyId;
+          let ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, sig, data);
+          $("signState").textContent = ok ? "Firmada y verificada con la clave " + key.keyId + "." : "⚠ La firma no se pudo verificar.";
+        } else $("signState").textContent = "Sin firma: solo válida si index.html no tiene claves públicas configuradas.";
+        signed = doc;
+        $("licOut").style.display = "block";
+        $("licOut").textContent = JSON.stringify(doc, null, 2);
+      }
+      let db = null,
+        auth = null;
+      function fb() {
+        if (db) return true;
+        if (!window.FIREBASE_CONFIG || !window.FIREBASE_CONFIG.apiKey) {
+          $("pubState").textContent = "No se encontró ../firebase-config.js";
+          return false;
+        }
+        if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+        auth = firebase.auth();
+        db = firebase.firestore();
+        auth.onAuthStateChanged((u) => ($("pubState").textContent = u ? "Sesión: " + (u.email || u.uid) + (u.emailVerified ? " (verificado)" : " (correo sin verificar)") : "Sin sesión"));
+        if (window.POS_CONFIG && window.POS_CONFIG.cafeId && !$("cafeId").value) $("cafeId").value = window.POS_CONFIG.cafeId;
+        return true;
+      }
+      async function vendorSignIn() {
+        if (!fb()) return;
+        try {
+          await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+        } catch (e) {
+          $("pubState").textContent = "No se pudo iniciar sesión: " + (e.code || e.message);
+        }
+      }
+      async function publishLicense() {
+        if (!fb()) return;
+        if (!signed) {
+          alert("Primero firma la licencia (paso 2)");
+          return;
+        }
+        if (!auth.currentUser || auth.currentUser.isAnonymous) {
+          alert("Inicia sesión con la cuenta de Google del proveedor");
+          return;
+        }
+        if (!confirm("Publicar la licencia de «" + signed.cafeId + "» (vence " + new Date(signed.expiresAt).toLocaleDateString("es-CO") + "). Reemplaza la licencia actual. ¿Continuar?")) return;
+        try {
+          await db
+            .collection("licenses")
+            .doc(signed.cafeId)
+            .set({
+              ...signed,
+              expiresAtTs: firebase.firestore.Timestamp.fromDate(new Date(signed.expiresAt)),
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              publishedBy: auth.currentUser.email || auth.currentUser.uid,
+            });
+          $("pubState").textContent = "Licencia publicada. Los dispositivos la reciben al sincronizar.";
+        } catch (e) {
+          $("pubState").textContent =
+            "No se pudo publicar: " + (e.code === "permission-denied" ? "permiso denegado (¿cuenta del proveedor y reglas 2.0.0 publicadas?)" : e.code || e.message);
+        }
+      }
+      async function readLicense() {
+        if (!fb()) return;
+        let id = $("cafeId").value.trim();
+        if (!id) return alert("Escribe el cafeId");
+        try {
+          let s = await db.collection("licenses").doc(id).get();
+          $("curOut").style.display = "block";
+          $("curOut").textContent = s.exists ? JSON.stringify(s.data(), null, 2) : "No hay licencia para «" + id + "».";
+        } catch (e) {
+          $("curOut").style.display = "block";
+          $("curOut").textContent = "No se pudo leer: " + (e.code || e.message);
+        }
+      }
+      (function init() {
+        let d = new Date();
+        d.setFullYear(d.getFullYear() + 1);
+        $("expiresAt").value = d.toISOString().slice(0, 10);
+        if (window.POS_CONFIG && window.POS_CONFIG.cafeId) $("cafeId").value = window.POS_CONFIG.cafeId;
+      })();
+    </script>
+  </body>
+</html>
