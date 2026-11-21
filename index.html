@@ -919,6 +919,30 @@
         color: var(--muted);
         margin-top: 4px;
       }
+      /* 1.8.0: historial por dispositivo y filtros */
+      .operator-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 10px;
+        flex-wrap: wrap;
+      }
+      .operator-row .field {
+        width: auto;
+        flex: 1;
+        min-width: 180px;
+      }
+      .history-filters {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 8px;
+        margin: 0 0 10px;
+      }
+      .sale-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
       /* 1.7.0: estados del cobro de mesas */
       .tcard.paying {
         border-color: #9cc3e8;
@@ -1165,7 +1189,7 @@
                 Toca un producto para añadirlo al carrito
               </div>
             </div>
-            <div class="actions">
+            <div class="actions admin-data">
               <button class="btn small" onclick="openImport()">
                 Importar Excel</button
               ><button class="btn small" onclick="exportExcel()">
@@ -1256,10 +1280,12 @@
         <div id="historial" class="section">
           <div class="topline">
             <div>
-              <h1>Historial de ventas</h1>
-              <div class="sub">Consulta las transacciones registradas</div>
+              <h1 id="historyTitle">Historial de ventas</h1>
+              <div class="sub" id="historySub">
+                Consulta las transacciones registradas
+              </div>
             </div>
-            <div class="actions">
+            <div class="actions admin-data">
               <button class="btn small" onclick="openArchive()">
                 Archivar mes</button
               ><button class="btn small" onclick="exportExcel()">
@@ -1267,6 +1293,37 @@
               </button>
             </div>
           </div>
+          <div class="operator-row">
+            <label class="sub" for="operatorName"
+              >Persona que atiende en este dispositivo</label
+            ><input
+              id="operatorName"
+              class="field"
+              maxlength="40"
+              placeholder="Ej. Laura (mesera)"
+              onchange="saveOperatorName(this.value)"
+            />
+          </div>
+          <div id="historyFilters" class="history-filters" style="display: none">
+            <select id="fDevice" class="field" onchange="setSalesFilter()"></select
+            ><select id="fOperator" class="field" onchange="setSalesFilter()"></select
+            ><select id="fTable" class="field" onchange="setSalesFilter()"></select
+            ><select id="fMethod" class="field" onchange="setSalesFilter()"></select
+            ><select id="fState" class="field" onchange="setSalesFilter()">
+              <option value="">Todos los estados</option>
+              <option value="pagada">Pagada</option>
+              <option value="anulada">Anulada</option>
+              <option value="pendiente-sync">Pendiente de sincronización</option>
+              <option value="sincronizada">Sincronizada</option></select
+            ><input id="fFrom" class="field" type="date" title="Desde" onchange="setSalesFilter()" /><input
+              id="fTo"
+              class="field"
+              type="date"
+              title="Hasta"
+              onchange="setSalesFilter()"
+            /><button class="btn small" onclick="clearSalesFilter()">Limpiar filtros</button>
+          </div>
+          <div id="openAccounts" class="notice" style="display: none"></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1507,20 +1564,6 @@
               permiten, el equipo nuevo aparecerá solo en la lista como
               Pendiente.
             </p>
-          </div>
-          <div class="set-card">
-            <h3>Persona que atiende en este dispositivo</h3>
-            <div class="sub">
-              Se registra en las ventas, cobros de mesa y auditoría.
-            </div>
-            <input
-              id="operatorName"
-              class="field"
-              style="margin-top: 8px"
-              maxlength="40"
-              placeholder="Ej. Laura (mesera)"
-              onchange="saveOperatorName(this.value)"
-            />
           </div>
           <div class="set-card" id="businessCard">
             <h3>Datos del negocio en el comprobante</h3>
@@ -2002,7 +2045,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "1.7.0",
+        APP_VERSION = "1.8.0",
         APP_BUILD = "2026-11-20";
       let received = "",
         rcSale = null,
@@ -2327,6 +2370,7 @@
             total: t,
             deviceId: currentDeviceId(),
             operator: operatorName() || null,
+            ...saleMeta(),
             cashSessionId:
               cashSession && cashSession.status === "open"
                 ? cashSession.id
@@ -2518,10 +2562,16 @@
         renderProducts();
         renderProductRows();
       }
+      // 1.8.0: lista visible del historial (filtros del Main; un secundario
+      // solo ve las ventas de su propio dispositivo). Los envoltorios usan
+      // salesView[i] para asociar cada fila con su venta.
+      let salesView = [];
       function renderSales() {
         let rows = document.getElementById("salesRows");
+        salesView =
+          typeof visibleSales === "function" ? visibleSales() : data.sales;
         rows.innerHTML =
-          data.sales
+          salesView
             .map((s) => {
               let v = !!s.voided,
                 id = esc(s.id),
@@ -2534,8 +2584,8 @@
             })
             .join("") ||
           '<tr><td colspan="5">Todavía no hay ventas registradas.</td></tr>';
-        let ok = data.sales.filter((s) => !s.voided),
-          nv = data.sales.length - ok.length,
+        let ok = salesView.filter((s) => !s.voided),
+          nv = salesView.length - ok.length,
           vs = ok.reduce((a, s) => a + saleSub(s), 0),
           pr = ok.reduce((a, s) => a + saleTip(s), 0),
           tg = ok.reduce((a, s) => a + (Number(s.total) || 0), 0);
@@ -2616,6 +2666,14 @@
             wb,
             XLSX.utils.json_to_sheet(tipRows),
             "Propinas",
+          );
+          // 1.8.0: una fila por producto, asociada a su dispositivo y mesa.
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(deviceSalesRows(data.sales), {
+              header: DEVICE_SALES_COLS,
+            }),
+            "Ventas por dispositivo",
           );
           XLSX.writeFile(wb, "bullet-pos_" + stamp() + ".xlsx");
         } else {
@@ -2965,10 +3023,13 @@
             return;
           }
           deviceApproved = true;
+          // 1.8.0: un dispositivo secundario solo consulta sus propias ventas
+          // (las reglas rechazan cualquier consulta más amplia).
+          window.__salesScope = await determineSalesScope(deviceSnap);
           // Primero se comprueba el estado remoto. Si está vacío, exige restaurar el JSON antes de migrar.
           let [remoteProducts, remoteSales] = await Promise.all([
             productsRef().get(),
-            salesRef().get(),
+            salesQuery().get(),
           ]);
           if (
             remoteProducts.empty &&
@@ -3024,7 +3085,8 @@
             renderProducts();
             renderProductRows();
           }
-          let latestSales = await salesRef().get();
+          let latestSales = await salesQuery().get();
+          noteServerSales(latestSales);
           let merged = new Map(data.sales.map((s) => [String(s.id), s]));
           latestSales.docs.forEach((d) =>
             merged.set(
@@ -3060,8 +3122,9 @@
               setSyncStatus("Error al sincronizar productos", err.message);
             },
           );
-          salesUnsub = salesRef().onSnapshot(
+          salesUnsub = salesQuery().onSnapshot(
             (snap) => {
+              noteServerSales(snap);
               let mergedSales = new Map(
                 data.sales.map((s) => [String(s.id), s]),
               );
@@ -4637,6 +4700,7 @@
             [
               ["Resumen", summaryRows(list, monthLabel(key))],
               ["Ventas", salesSheetRows(list)],
+              ["Ventas por dispositivo", deviceSalesRows(list)],
             ],
             "bullet-pos_archivo_" + key,
           );
@@ -4652,6 +4716,7 @@
                 ),
               ],
               ["Ventas", salesSheetRows(all)],
+              ["Ventas por dispositivo", deviceSalesRows(all)],
             ],
             "bullet-pos_historial-completo_hasta_" + stamp(),
           );
@@ -5342,16 +5407,23 @@
           if (cashMetaUnsub) cashMetaUnsub();
           cashMetaUnsub = cashMetaRef().onSnapshot(
             async (meta) => {
+              // 1.8.0: cada cambio lleva un número de secuencia. Si mientras se
+              // procesa llega uno más nuevo, este se descarta: antes un cambio
+              // viejo podía terminar después y borrar la sesión recién abierta.
+              let seq = (window.__cashMetaSeq = (window.__cashMetaSeq || 0) + 1);
+              const stale = () => seq !== window.__cashMetaSeq;
               try {
                 let hs = await cashSessionsRef()
                   .where("status", "==", "closed")
                   .get();
+                if (stale()) return;
                 cashHistory = hs.docs
                   .map((d) => d.data())
                   .sort((a, b) =>
                     String(b.closedAt).localeCompare(String(a.closedAt)),
                   );
               } catch (e) {}
+              if (stale()) return;
               let id = meta.exists ? meta.data().currentSessionId : null;
               if (id) {
                 // 1.6.0: sin conexión se intenta la caché; si tampoco está,
@@ -5366,6 +5438,7 @@
                     console.warn("Sesión de caja no disponible sin conexión:", id);
                   }
                 }
+                if (stale()) return;
                 if (ss && ss.exists) saveCashLocal(ss.data());
               } else {
                 saveCashLocal(null);
@@ -5745,7 +5818,7 @@
         _renderSales150();
         if (!deviceIsMain()) return;
         document.querySelectorAll("#salesRows tr").forEach((tr, i) => {
-          let s = data.sales[i];
+          let s = salesView[i];
           if (!s || s.voided) return;
           let cell = tr.querySelector(".row-actions");
           if (cell && !cell.querySelector(".pay-correct"))
@@ -7380,7 +7453,7 @@
           error: ["bad", "Error de sincronización"],
         };
         document.querySelectorAll("#salesRows tr").forEach((tr, i) => {
-          let s = data.sales[i];
+          let s = salesView[i];
           if (!s || tr.children.length < 4) return;
           let st = BulletSync.saleState(s.id),
             b = st && SL[st.state];
@@ -8217,11 +8290,13 @@
             total: tot,
             deviceId: currentDeviceId(),
             operator: operatorName() || null,
+            ...saleMeta(),
             cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
             table: n,
             tableName: "Mesa " + n,
             checkoutStartedAt: co.startedAt || null,
             checkoutStartedBy: co.startedBy || null,
+            tableOpenedAt: t.openedAt ? new Date(t.openedAt).toISOString() : null,
           },
           already = data.sales.find((s) => String(s.id) === String(co.opId)),
           btn = gid("checkout");
@@ -8478,6 +8553,7 @@
             total: sub,
             deviceId: currentDeviceId(),
             operator: operatorName() || null,
+            ...saleMeta(),
             cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
             table: n,
             tableName: "Mesa " + n,
@@ -9254,6 +9330,457 @@
           pushDirtyTables();
           tryPendingReleases();
         }, 1500);
+      });
+      // ===== Bullet POS 1.8.0: permisos de datos/Ajustes e historiales por dispositivo =====
+      // Un dispositivo secundario (mesero) no ve Ajustes, no importa ni exporta
+      // JSON/Excel y solo consulta las ventas de su propio deviceId. Se valida
+      // en la interfaz, en la lógica (cada función) y en las reglas de Firestore.
+      const ROLE_KEY = "bullet_device_role";
+      const serverSaleIds = new Set();
+      let salesFilter = {},
+        lastRestricted = null;
+      function knownRole() {
+        try {
+          return localStorage.getItem(ROLE_KEY) || "";
+        } catch (e) {
+          return "";
+        }
+      }
+      function setKnownRole(r) {
+        try {
+          if (r) localStorage.setItem(ROLE_KEY, r);
+          else localStorage.removeItem(ROLE_KEY);
+        } catch (e) {}
+      }
+      // Secundario = hay un PC Main configurado y este equipo no lo es. Sin
+      // Firebase (equipo único) o sin Main aún configurado, no hay restricción.
+      function isRestrictedDevice() {
+        if (!firebaseConfigured()) return false;
+        if (deviceIsMain()) return false;
+        if (adminConfig && adminConfig.mainDeviceId) return true;
+        return knownRole() === "secondary";
+      }
+      function denyRestricted(what) {
+        if (!isRestrictedDevice()) return false;
+        toast("Solo un PC Main puede " + what);
+        return true;
+      }
+      function saleMeta() {
+        return {
+          businessId: String((window.POS_CONFIG && window.POS_CONFIG.cafeId) || "local"),
+          deviceName: BulletSupervision.myName(),
+        };
+      }
+      function isOwnSale(s) {
+        let me = currentDeviceId();
+        return !!s && (s.deviceId === me || s.deviceId === "local");
+      }
+      // Alcance de las consultas de ventas según el rol (se decide al conectar).
+      async function determineSalesScope(deviceSnap) {
+        try {
+          let s = await adminRef().get();
+          if (!s.exists) {
+            setKnownRole("");
+            return "all";
+          }
+          let main = mainIds(s.data()).includes(syncUser.uid);
+          setKnownRole(main ? "main" : "secondary");
+          return main ? "all" : "own";
+        } catch (e) {
+          if (e && e.code === "permission-denied") {
+            setKnownRole("secondary");
+            if (!adminConfig) adminConfig = { mainDeviceId: "__otro_equipo__" };
+            return "own";
+          }
+          let role = knownRole() || (deviceSnap && deviceSnap.data().role === "cashier" ? "secondary" : "");
+          return role === "secondary" ? "own" : "all";
+        }
+      }
+      function salesQuery() {
+        return window.__salesScope === "own" && syncUser
+          ? salesRef().where("deviceId", "==", syncUser.uid)
+          : salesRef();
+      }
+      function noteServerSales(snap) {
+        (snap.docs || []).forEach((d) => {
+          if (!d.metadata.hasPendingWrites) serverSaleIds.add(d.id);
+        });
+      }
+      // En un secundario, las ventas de otros dispositivos que pudieran existir
+      // en este equipo (versiones anteriores) se retiran de la memoria. No se
+      // borran de IndexedDB: no se pierde ningún dato.
+      function restrictSalesInMemory() {
+        if (!isRestrictedDevice()) return;
+        let own = data.sales.filter(isOwnSale);
+        if (own.length !== data.sales.length) data.sales = own;
+      }
+
+      // --- Presentación de ventas: dispositivo, estado de pago y de sincronización ---
+      function deviceLabel(s) {
+        let id = s && s.deviceId;
+        if (!id || id === "legacy") return "No disponible";
+        let d = devicesList.find((x) => x.id === id);
+        if (d && d.name) return d.name;
+        if (s.deviceName) return s.deviceName;
+        if (syncUser && id === syncUser.uid) return BulletSupervision.myName();
+        if (id === "local") return "Este dispositivo (sin identificar)";
+        return "Equipo " + String(id).slice(0, 6);
+      }
+      function paymentState(s) {
+        if (s.voided) return s.tableVoid ? "Anulada (cuenta de mesa)" : "Anulada";
+        return salePayments(s).some((p) => p.partial) ? "Pagada (con abonos)" : "Pagada";
+      }
+      function syncInfo(s) {
+        let id = String(s.id),
+          st = BulletSync.saleState(id);
+        if (BulletSync.isPending(id))
+          return {
+            label: st && st.state === "error" ? "Error de sincronización" : "Pendiente de sincronización",
+            pending: true,
+          };
+        if ((st && st.state === "synced") || serverSaleIds.has(id))
+          return { label: "Sincronizada", synced: true };
+        if (!firebaseConfigured()) return { label: "Solo en este dispositivo", local: true };
+        return { label: "Sin confirmar por el servidor", pending: true };
+      }
+      function saleObservations(s) {
+        let o = [];
+        if (s.voided) o.push("Anulada: " + (s.voidReason || "sin motivo"));
+        (Array.isArray(s.paymentCorrections) ? s.paymentCorrections : []).forEach((c) =>
+          o.push(
+            "Pago corregido " +
+              ((c.before && c.before.payment) || "") +
+              " → " +
+              ((c.after && c.after.payment) || "") +
+              (c.reason ? " (" + c.reason + ")" : ""),
+          ),
+        );
+        if (salePayments(s).some((p) => p.partial)) o.push("Incluye abonos parciales");
+        if (s.archived) o.push("Archivada");
+        return o.join(" · ");
+      }
+      function saleDay(s) {
+        let d = new Date(s.date);
+        if (!Number.isFinite(d.getTime())) return "";
+        return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      }
+      function visibleSales() {
+        let list = data.sales;
+        if (isRestrictedDevice()) return list.filter(isOwnSale);
+        let f = salesFilter;
+        return list.filter((s) => {
+          if (f.device && (s.deviceId || "__none__") !== f.device) return false;
+          if (f.operator && (s.operator || "__none__") !== f.operator) return false;
+          if (f.table && (s.table != null ? String(s.table) : "__none__") !== f.table) return false;
+          if (f.method && !salePayments(s).some((p) => p.method === f.method)) return false;
+          if (f.state === "pagada" && s.voided) return false;
+          if (f.state === "anulada" && !s.voided) return false;
+          if (f.state === "pendiente-sync" && !syncInfo(s).pending) return false;
+          if (f.state === "sincronizada" && !syncInfo(s).synced) return false;
+          let day = saleDay(s);
+          if (f.from && (!day || day < f.from)) return false;
+          if (f.to && (!day || day > f.to)) return false;
+          return true;
+        });
+      }
+      function filtersActive() {
+        return Object.values(salesFilter).some(Boolean);
+      }
+      function setSalesFilter() {
+        salesFilter = {
+          device: gid("fDevice").value,
+          operator: gid("fOperator").value,
+          table: gid("fTable").value,
+          method: gid("fMethod").value,
+          state: gid("fState").value,
+          from: gid("fFrom").value,
+          to: gid("fTo").value,
+        };
+        renderSales();
+      }
+      function clearSalesFilter() {
+        salesFilter = {};
+        ["fDevice", "fOperator", "fTable", "fMethod", "fState", "fFrom", "fTo"].forEach((id) => {
+          if (gid(id)) gid(id).value = "";
+        });
+        renderSales();
+      }
+      function fillSelect(id, first, entries, current) {
+        let el = gid(id);
+        if (!el || document.activeElement === el) return;
+        el.innerHTML =
+          '<option value="">' +
+          esc(first) +
+          "</option>" +
+          entries.map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + "</option>").join("");
+        el.value = current || "";
+      }
+      function populateSalesFilters() {
+        let dev = new Map(),
+          ops = new Set(),
+          tbs = new Set(),
+          mts = new Set();
+        data.sales.forEach((s) => {
+          dev.set(s.deviceId || "__none__", s.deviceId ? deviceLabel(s) : "No disponible");
+          ops.add(s.operator || "__none__");
+          tbs.add(s.table != null ? String(s.table) : "__none__");
+          salePayments(s).forEach((p) => p.method && mts.add(p.method));
+        });
+        fillSelect("fDevice", "Todos los dispositivos", [...dev.entries()].sort((a, b) => a[1].localeCompare(b[1])), salesFilter.device);
+        fillSelect(
+          "fOperator",
+          "Todos los meseros",
+          [...ops].sort().map((o) => [o, o === "__none__" ? "No disponible" : o]),
+          salesFilter.operator,
+        );
+        fillSelect(
+          "fTable",
+          "Todas las mesas",
+          [...tbs]
+            .sort((a, b) => (a === "__none__" ? -1 : b === "__none__" ? 1 : Number(a) - Number(b)))
+            .map((t) => [t, t === "__none__" ? "Venta rápida (sin mesa)" : "Mesa " + t]),
+          salesFilter.table,
+        );
+        fillSelect("fMethod", "Todos los métodos", [...mts].sort().map((m) => [m, m]), salesFilter.method);
+      }
+      function renderOpenAccounts() {
+        let el = gid("openAccounts");
+        if (!el) return;
+        let open = Object.values(data.tables || {}).filter((t) => t && t.open);
+        if (isRestrictedDevice() || !open.length) {
+          el.style.display = "none";
+          return;
+        }
+        el.style.display = "block";
+        el.innerHTML =
+          "<strong>Cuentas abiertas (aún no son ventas pagadas)</strong>" +
+          open
+            .sort((a, b) => a.n - b.n)
+            .map((t) => {
+              let co = tblCheckout(t),
+                st = !co
+                  ? "En curso"
+                  : co.state === "pendiente"
+                    ? "Pago registrado · pendiente de confirmar"
+                    : "Pendiente de cobro" + (co.state === "fallido" ? " (último intento fallido)" : "");
+              return (
+                '<div class="sub">Mesa ' +
+                t.n +
+                " · " +
+                esc(st) +
+                " · " +
+                money(tableSub(t)) +
+                (partialsSum(t) ? " · abonado " + money(partialsSum(t)) : "") +
+                "</div>"
+              );
+            })
+            .join("");
+      }
+      const _renderSales180 = renderSales;
+      renderSales = function () {
+        _renderSales180();
+        let restricted = isRestrictedDevice(),
+          main = deviceIsMain();
+        document.querySelectorAll("#salesRows tr").forEach((tr, i) => {
+          let s = salesView[i];
+          if (!s || tr.children.length < 4 || tr.querySelector(".sale-meta")) return;
+          let si = syncInfo(s),
+            hm = (v) => (v ? new Date(v).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
+          tr.children[1].insertAdjacentHTML(
+            "beforeend",
+            '<div class="sale-meta">Dispositivo: ' +
+              esc(deviceLabel(s)) +
+              " · Atendió: " +
+              esc(s.operator || "No disponible") +
+              " · " +
+              (s.table != null ? "Mesa " + esc(s.table) : "Venta rápida") +
+              (s.tableOpenedAt ? " · abierta " + esc(hm(s.tableOpenedAt)) + ", cobrada " + esc(hm(s.date)) : "") +
+              " · Caja: " +
+              (s.cashSessionId ? esc(String(s.cashSessionId).slice(0, 8)) : "No disponible") +
+              "</div>",
+          );
+          tr.children[3].insertAdjacentHTML(
+            "beforeend",
+            '<div class="sale-meta">' + esc(paymentState(s)) + " · " + esc(si.label) + "</div>",
+          );
+          // Anular solo lo ve un PC Main (además de la validación en openVoid).
+          if (!main) tr.querySelectorAll('button[onclick^="openVoid"]').forEach((b) => b.remove());
+        });
+        let title = gid("historyTitle"),
+          sub = gid("historySub"),
+          filters = gid("historyFilters");
+        if (title) title.textContent = restricted ? "Mi historial de ventas" : "Historial de ventas";
+        if (sub)
+          sub.textContent = restricted
+            ? "Solo ventas registradas en este dispositivo"
+            : filtersActive()
+              ? salesView.length + " de " + data.sales.length + " ventas (filtrado)"
+              : "Historial global · " + data.sales.length + " ventas";
+        if (filters) filters.style.display = restricted ? "none" : "";
+        if (!restricted) populateSalesFilters();
+        if (filtersActive() && !restricted) {
+          let sm = gid("salesSummary");
+          if (sm) sm.insertAdjacentHTML("afterbegin", '<div class="sub"><strong>Totales del filtro aplicado</strong></div>');
+        }
+        renderOpenAccounts();
+      };
+
+      // --- Excel: nueva hoja «Ventas por dispositivo» (una fila por producto) ---
+      const DEVICE_SALES_COLS = [
+        "Fecha",
+        "Hora",
+        "ID de venta",
+        "Dispositivo",
+        "Mesero",
+        "Mesa",
+        "Productos vendidos",
+        "Cantidades",
+        "Subtotal",
+        "Descuento",
+        "Propina",
+        "Total de la venta",
+        "Método de pago",
+        "Estado del pago",
+        "Estado de sincronización",
+        "Sesión de caja",
+        "Observaciones",
+      ];
+      // Propina y Total de la venta van solo en la primera fila de cada venta
+      // para que las sumas en tablas dinámicas no se dupliquen.
+      function deviceSalesRows(list) {
+        let rows = [];
+        (list || []).forEach((s) => {
+          let d = new Date(s.date),
+            ok = Number.isFinite(d.getTime()),
+            items = Array.isArray(s.items) && s.items.length ? s.items : [null],
+            pays = salePayments(s)
+              .map((p) => p.method + " " + Math.round(Number(p.amount) || 0) + (p.partial ? " (abono)" : ""))
+              .join(" + "),
+            base = {
+              Fecha: ok ? d.toLocaleDateString("es-CO") : "No disponible",
+              Hora: ok ? d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : "No disponible",
+              "ID de venta": String(s.id),
+              Dispositivo: deviceLabel(s),
+              Mesero: s.operator || "No disponible",
+              Mesa: s.table != null ? "Mesa " + s.table : "Venta rápida",
+            };
+          items.forEach((x, k) =>
+            rows.push({
+              ...base,
+              "Productos vendidos": x ? String(x.name) : "No disponible",
+              Cantidades: x ? Number(x.qty) || 0 : "No disponible",
+              Subtotal: x ? (Number(x.price) || 0) * (Number(x.qty) || 0) : saleSub(s),
+              Descuento: "No aplica",
+              Propina: k === 0 ? saleTip(s) : "",
+              "Total de la venta": k === 0 ? Number(s.total) || 0 : "",
+              "Método de pago": pays || "No disponible",
+              "Estado del pago": paymentState(s),
+              "Estado de sincronización": syncInfo(s).label,
+              "Sesión de caja": s.cashSessionId ? String(s.cashSessionId).slice(0, 8) : "No disponible",
+              Observaciones: saleObservations(s),
+            }),
+          );
+        });
+        return rows;
+      }
+
+      // --- Bloqueo en la lógica de funciones administrativas ---
+      const _exportExcel180 = exportExcel;
+      exportExcel = function () {
+        if (denyRestricted("exportar a Excel")) return;
+        return _exportExcel180();
+      };
+      const _exportBackup180 = exportBackup;
+      exportBackup = function (tag) {
+        if (denyRestricted("exportar respaldos JSON")) return;
+        return _exportBackup180(tag);
+      };
+      const _importBackup180 = importBackup;
+      importBackup = function (ev) {
+        if (isRestrictedDevice()) {
+          if (ev && ev.target) ev.target.value = "";
+          denyRestricted("restaurar respaldos JSON");
+          return;
+        }
+        return _importBackup180(ev);
+      };
+      const _openImport180 = openImport;
+      openImport = function () {
+        if (denyRestricted("importar Excel")) return;
+        return _openImport180();
+      };
+      const _importExcel180 = importExcel;
+      importExcel = function () {
+        if (denyRestricted("importar Excel")) return;
+        return _importExcel180();
+      };
+      const _openArchive180 = openArchive;
+      openArchive = function () {
+        if (denyRestricted("archivar el historial")) return;
+        return _openArchive180();
+      };
+      const _switchTab180 = switchTab;
+      switchTab = function (tab) {
+        if (isRestrictedDevice() && ["ajustes", "productos", "caja"].includes(tab)) {
+          toast("Esta sección solo está disponible en un PC Main");
+          return;
+        }
+        return _switchTab180(tab);
+      };
+      const _renderSettings180 = renderSettings;
+      renderSettings = function () {
+        if (isRestrictedDevice()) return;
+        return _renderSettings180();
+      };
+      const _loadAdminConfig180 = loadAdminConfig;
+      loadAdminConfig = async function () {
+        await _loadAdminConfig180();
+        if (deviceIsMain()) setKnownRole("main");
+        else if (adminConfig && adminConfig.mainDeviceId) setKnownRole("secondary");
+        restrictSalesInMemory();
+        renderRoleUI();
+        renderSales();
+      };
+      const _renderRoleUI180 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI180();
+        let r = isRestrictedDevice();
+        document
+          .querySelectorAll('.tab[data-tab="ajustes"]')
+          .forEach((b) => (b.style.display = r ? "none" : ""));
+        if (r && gid("ajustes") && gid("ajustes").classList.contains("active")) _switchTab180("venta");
+        document.querySelectorAll(".admin-data").forEach((x) => (x.style.display = r ? "none" : ""));
+        if (r !== lastRestricted) {
+          lastRestricted = r;
+          if (r) restrictSalesInMemory();
+          renderSales();
+        }
+      };
+      // Vincular como segundo Main desde el panel de sincronización (los
+      // secundarios no tienen acceso a Ajustes).
+      const _renderSyncPanel180 = renderSyncPanel;
+      renderSyncPanel = function () {
+        _renderSyncPanel180();
+        let el = gid("syncPanelBody");
+        if (el && !deviceIsMain() && deviceApproved && adminConfig && adminConfig.mainDeviceId)
+          el.insertAdjacentHTML(
+            "beforeend",
+            '<div class="set-card"><h3>Segundo PC Main</h3><div class="sub">Si un PC Main te entregó un código de vinculación, este equipo puede convertirse en el segundo Main.</div><button class="btn" style="margin-top:8px" onclick="claimSecondMain()">Vincular como segundo Main</button></div>',
+          );
+      };
+      // Tras vincularse como Main, se recarga para consultar todas las ventas.
+      const _claimSecondMain180 = claimSecondMain;
+      claimSecondMain = async function () {
+        await _claimSecondMain180();
+        if (deviceIsMain() && window.__salesScope === "own") {
+          setKnownRole("main");
+          toast("Recargando para cargar el historial global…");
+          setTimeout(() => location.reload(), 1200);
+        }
+      };
+      BulletStore.ready.then(() => {
+        restrictSalesInMemory();
+        renderRoleUI();
       });
       renderArchiveLog();
 

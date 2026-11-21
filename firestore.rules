@@ -1,5 +1,5 @@
 rules_version = '2';
-// Bullet POS 1.7.0 — Reglas de seguridad de Firestore.
+// Bullet POS 1.8.0 — Reglas de seguridad de Firestore.
 // Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
 // autorizados de ESE negocio (devices/{uid}.active == true) pueden usarlos.
 // PC Main: UID incluido en control/admin.mainDeviceIds (máximo 2), o
@@ -81,7 +81,10 @@ service cloud.firestore {
 
     // --- Ventas ---
     match /cafeterias/{cafeId}/sales/{saleId} {
-      allow read: if approvedDevice(cafeId);
+      // 1.8.0: el PC Main lee el historial global; un dispositivo secundario
+      // solo sus propias ventas (las consultas deben filtrar por deviceId).
+      allow read: if isMainOrBootstrap(cafeId)
+        || (approvedDevice(cafeId) && resource.data.deviceId == request.auth.uid);
       // Cada dispositivo registra sus propias ventas, nunca anuladas. Si la
       // venta cobra una mesa, su ID es el paymentOperationId (idempotencia) y
       // la suma de los pagos debe cubrir el total.

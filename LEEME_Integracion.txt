@@ -1,6 +1,34 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+ACTUALIZAR A LA VERSIÓN 1.8.0 (permisos de datos e historial por dispositivo)
+---------------------------------------------------------------------------
+Incluye todo lo de 1.7.0 y 1.6.0. Mismo orden: respaldo JSON, publicar
+firestore.rules (1.8.0), subir index.html, sw.js, firestore.rules y este
+LEEME, y actualizar todos los dispositivos.
+
+Qué cambia:
+- Dispositivos secundarios (meseros): ya no ven la pestaña Ajustes ni los
+  botones de Excel/JSON (importar, exportar, respaldo, restaurar, archivar).
+  Las funciones también están bloqueadas en la lógica, y las reglas de
+  Firestore solo les entregan las ventas de su propio dispositivo.
+- «Mi historial de ventas»: cada mesero ve solo lo registrado en su equipo.
+- PC Main: historial global con filtros por dispositivo, mesero, mesa, método
+  de pago, estado y fechas; cada venta muestra dispositivo, quién atendió,
+  mesa, caja, estado del pago y estado de sincronización. Arriba se listan las
+  cuentas abiertas (en curso, pendiente de cobro, pago por confirmar).
+- Ventas antiguas sin esos datos muestran «No disponible» (no se inventa nada).
+- Excel: nueva hoja «Ventas por dispositivo» (una fila por producto). Propina
+  y Total de la venta van solo en la primera fila de cada venta para que las
+  sumas en tablas dinámicas no se dupliquen. La hoja también se incluye en los
+  archivos del archivado mensual. «Descuento» figura como «No aplica» porque
+  el POS no maneja descuentos.
+- «Persona que atiende en este dispositivo» se movió a la pestaña Historial.
+- «Vincular como segundo Main» ahora está en el panel de sincronización
+  (indicador del encabezado), porque los secundarios no abren Ajustes.
+- Corregido: la caja abierta en un PC Main podía perderse localmente al
+  procesarse cambios de caja fuera de orden; sus ventas quedaban sin caja.
+
 ACTUALIZAR A LA VERSIÓN 1.7.0 (cobro seguro de mesas + segundo Main)
 -------------------------------------------------------------------
 Incluye todo lo de 1.6.0 (ver sección siguiente). Mismo orden obligatorio:
