@@ -1,6 +1,13 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 1.8.1 (corrección de caja)
+----------------------------------
+Corrige que un PC Main podía perder localmente la caja recién abierta si la
+abría justo al terminar de conectarse (el listener de caja se creaba dos
+veces). Sus ventas quedaban sin sesión de caja y fuera del cierre. Solo
+cambian index.html y sw.js; las reglas de Firestore son las mismas de 1.8.0.
+
 ACTUALIZAR A LA VERSIÓN 1.8.0 (permisos de datos e historial por dispositivo)
 ---------------------------------------------------------------------------
 Incluye todo lo de 1.7.0 y 1.6.0. Mismo orden: respaldo JSON, publicar

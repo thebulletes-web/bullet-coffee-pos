@@ -2045,7 +2045,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "1.8.0",
+        APP_VERSION = "1.8.1",
         APP_BUILD = "2026-11-20";
       let received = "",
         rcSale = null,
@@ -5395,6 +5395,14 @@
       }
       async function loadCashCloud() {
         if (!syncReady || !deviceApproved) return;
+        // 1.8.1: un solo listener de caja. Antes se llamaba dos veces al
+        // conectar y el listener nuevo podía arrancar con datos viejos de la
+        // caché y borrar la caja recién abierta.
+        if (window.__cashListening) {
+          renderCashDashboard();
+          return;
+        }
+        window.__cashListening = true;
         try {
           let hs = await cashSessionsRef()
             .where("status", "==", "closed")
@@ -5440,7 +5448,10 @@
                 }
                 if (stale()) return;
                 if (ss && ss.exists) saveCashLocal(ss.data());
-              } else {
+              } else if (!cashSession) {
+                // 1.8.1: «no existe la caja» nunca borra una sesión abierta en
+                // este equipo (el documento de caja no se elimina; solo puede
+                // significar que aún no se creó o que la caché está atrasada).
                 saveCashLocal(null);
                 cashMovements = [];
               }
@@ -5482,6 +5493,7 @@
           renderCashDashboard();
         } catch (e) {
           console.warn("Caja compartida:", e);
+          window.__cashListening = false; // se reintenta en la próxima conexión
           renderCashDashboard();
         }
       }
