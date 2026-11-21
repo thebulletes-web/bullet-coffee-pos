@@ -1,6 +1,23 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.1.1 (plazos cortos sin conexión)
+------------------------------------------
+Solo cambian index.html y sw.js (las reglas son las mismas de 2.1.0).
+- Ajustes > Seguridad y operación ahora permite plazos sin conexión de 1, 2,
+  4, 8 y 12 horas, además de 1 a 30 días.
+- Recomendado: meseros 4 a 8 h (un equipo robado y desconectado deja de
+  vender pronto) y PC Main 24 h (la caja sigue cobrando si se cae internet).
+- El plazo solo corre sin conexión: con internet se renueva solo. Con plazos
+  cortos la verificación es más frecuente (cada cuarto del plazo, entre 5 y
+  30 minutos). El aviso «debe conectarse» solo aparece si el equipo de verdad
+  lleva rato sin poder verificar.
+- Un equipo robado CON internet se bloquea en segundos al marcarlo «Perdido»
+  o revocarlo, sin importar el plazo.
+- Notas de la herramienta de licencias (corrección publicada aparte): usa su
+  propia conexión de Firebase; iniciar sesión en ella ya no cambia la
+  identidad del POS en ese navegador.
+
 VERSIÓN 2.1.0 (reinicio real de datos y entrega a caja de los cobros de meseros)
 -------------------------------------------------------------------------------
 Incluye todo lo de 2.0.0. Cambian index.html, sw.js y firestore.rules.

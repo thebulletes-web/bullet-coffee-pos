@@ -2550,7 +2550,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.1.0",
+        APP_VERSION = "2.1.1",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -11074,7 +11074,7 @@
         mainLeaseHours: 168,
         diffNoteThreshold: 5000,
       };
-      const LEASE_OPTIONS = [24, 48, 72, 168, 336, 720];
+      const LEASE_OPTIONS = [1, 2, 4, 8, 12, 24, 48, 72, 168, 336, 720];
       const DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
       const dayKey = (v) => {
         let d = new Date(v);
@@ -11186,7 +11186,7 @@
         if (!gid("polSecLease")) return;
         let p = posPolicy(),
           main = deviceIsMain(),
-          opts = (v) => LEASE_OPTIONS.map((h) => '<option value="' + h + '"' + (h === v ? " selected" : "") + ">" + (h < 48 ? h + " horas" : h / 24 + " días") + "</option>").join("");
+          opts = (v) => LEASE_OPTIONS.map((h) => '<option value="' + h + '"' + (h === v ? " selected" : "") + ">" + (h === 1 ? "1 hora" : h < 48 ? h + " horas" : h / 24 + " días") + "</option>").join("");
         if (document.activeElement && gid("policyCard") && gid("policyCard").contains(document.activeElement)) return;
         gid("polSecLease").innerHTML = opts(p.secondaryLeaseHours);
         gid("polMainLease").innerHTML = opts(p.mainLeaseHours);
@@ -11214,6 +11214,17 @@
         if (h >= 48) return Math.floor(h / 24) + " días";
         if (h >= 1) return h + " h " + Math.floor((ms % 3600000) / 60000) + " min";
         return Math.max(0, Math.floor(ms / 60000)) + " min";
+      }
+      // 2.1.1: con plazos cortos (desde 1 h) la verificación con el servidor es
+      // más frecuente: cada cuarto del plazo, entre 5 y 30 minutos.
+      function verifyEveryMs() {
+        return Math.min(30 * 60000, Math.max(5 * 60000, (leaseHours() * 3600000) / 4));
+      }
+      // Avisar solo si el equipo lleva más de dos verificaciones sin lograrlo
+      // (con internet el plazo se renueva solo y no hay nada que avisar).
+      function leaseWarn(le) {
+        if (!le || !le.applies || !le.ok || le.loading || !le.at) return false;
+        return secNow() - le.at > 2 * verifyEveryMs() + 60000 && le.left < Math.min(12 * 3600000, (leaseHours() * 3600000) / 2);
       }
       async function verifyDeviceOnline(reason) {
         secState.lastVerifyTry = Date.now();
@@ -13605,7 +13616,7 @@
               : b.action === "verify"
                 ? '<button class="btn small primary" onclick="checkAuthorizationNow()">Verificar ahora</button>'
                 : '<button class="btn small" onclick="contactSupport()">Soporte</button>');
-        } else if (!b && le.applies && le.ok && !le.loading && le.left < 12 * 3600000) {
+        } else if (!b && le.applies && le.ok && !le.loading && leaseWarn(le)) {
           html = "<span>⏳ Este equipo debe conectarse a internet en " + esc(leftText(le.left)) + " para seguir vendiendo.</span>" + '<button class="btn small" onclick="checkAuthorizationNow()">Verificar ahora</button>';
         } else if (!b && (lic.state === "grace" || lic.state === "expiring")) {
           html = "<span>⚠ " + esc(lic.label) + ". Escribe a soporte para renovarla.</span>" + '<button class="btn small" onclick="contactSupport()">Soporte</button>';
@@ -13641,7 +13652,7 @@
             txt = le.never ? "Sin autorizar" : "Verificación requerida";
             cls = "bad";
           } else if (lic.state === "grace" || lic.state === "expiring") txt = lic.state === "grace" ? "Licencia vencida (gracia)" : "Licencia por vencer";
-          else if (le.applies && le.ok && !le.loading && le.left < 12 * 3600000) txt = "Conectar en " + leftText(le.left);
+          else if (le.applies && le.ok && !le.loading && leaseWarn(le)) txt = "Conectar en " + leftText(le.left);
           xc.style.display = txt ? "" : "none";
           xc.className = "sync-chip " + cls;
           xc.innerHTML = "<i></i><span>" + esc(txt) + "</span>";
@@ -13769,7 +13780,7 @@
           saveSec();
           BulletAudit.record("leaseExpired", { hours: leaseHours(), verifiedAt: new Date(le.at).toISOString() });
         }
-        if (syncUser && navigator.onLine !== false && Date.now() - (Number(secState.lastVerifyTry) || 0) > 30 * 60000) verifyDeviceOnline("periodico");
+        if (syncUser && navigator.onLine !== false && Date.now() - (Number(secState.lastVerifyTry) || 0) > verifyEveryMs()) verifyDeviceOnline("periodico");
         if (syncReady && deviceApproved && !window.__v2Drain) startV2Listeners();
         renderSecurityUI();
       }, 60000);
