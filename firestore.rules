@@ -1,5 +1,6 @@
 rules_version = '2';
-// Bullet POS 2.2.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.3.0 — Reglas de seguridad de Firestore.
+// 2.3.0: solicitudes de cobro (chargeRequests) y permiso «Cobro directo».
 // 2.2.0: personal con PIN (staff).
 // 2.1.0: generación de datos (control/generation) para el reinicio real y
 // entregas a caja (cashReceipts). Ver la sección «generación de datos».
@@ -68,6 +69,18 @@ service cloud.firestore {
     }
     function canSend(cafeId) {
       return approvedDevice(cafeId) || drainingDevice(cafeId);
+    }
+    // --- 2.3.0: «Cobro directo» por equipo (lo cambia solo un PC Main) ---
+    // Sin el permiso, un secundario no registra ventas, abonos ni libera
+    // mesas por cobro: envía solicitudes de cobro. Al quitar el permiso hay
+    // 24 h (directChargeGrace) para enviar lo que ya cobró. Un equipo sin el
+    // campo (antes de la migración que hace el PC Main 2.3.0) conserva el
+    // comportamiento anterior.
+    function canDirectCharge(cafeId) {
+      return isMainOrBootstrap(cafeId)
+        || get(devicePath(cafeId)).data.get('directCharge', true) == true
+        || (get(devicePath(cafeId)).data.get('directChargeGrace', null) is timestamp
+            && get(devicePath(cafeId)).data.directChargeGrace > request.time);
     }
 
     // --- 2.0.0: licencia del proveedor ---
@@ -170,8 +183,10 @@ service cloud.firestore {
       // la suma de los pagos debe cubrir el total.
       // 2.0.0: un equipo revocado con plazo puede terminar de enviar sus ventas.
       // 2.1.0: toda venta nueva debe ser de la generación vigente.
+      // 2.3.0: un secundario solo crea ventas si tiene «Cobro directo».
       allow create: if genOk(cafeId, request.resource.data) && (isMainOrBootstrap(cafeId)
         || (canSend(cafeId)
+            && canDirectCharge(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.total is number
             && request.resource.data.items is list
@@ -271,7 +286,9 @@ service cloud.firestore {
         && a.get('partials', []).size() == 0
         && (
           // cobro válido ya registrado en el servidor
+          // (2.3.0: solo con «Cobro directo»; si no, la libera el PC Main)
           (lockedOf(b)
+            && canDirectCharge(cafeId)
             && a.get('releasedBySale', '') == b.checkout.opId
             && saleCovers(cafeId, b))
           // mesa abierta por error que nunca tuvo consumo
@@ -291,6 +308,10 @@ service cloud.firestore {
       allow update: if approvedDevice(cafeId)
         && request.resource.data.rev == resource.data.get('rev', 0) + 1
         && request.resource.data.get('n', -1) == resource.data.get('n', request.resource.data.get('n', -1))
+        // 2.3.0: agregar abonos (dinero recibido) exige «Cobro directo».
+        && (isMain(cafeId)
+            || request.resource.data.get('partials', []).size() <= resource.data.get('partials', []).size()
+            || canDirectCharge(cafeId))
         && (isMain(cafeId)
             || waiterOpenEdit(resource.data, request.resource.data)
             || waiterRelease(cafeId, resource.data, request.resource.data)
@@ -425,6 +446,28 @@ service cloud.firestore {
             && request.resource.data.id == shiftId
             && (resource.data.status == 'open' || request.resource.data == resource.data));
       // 2.1.0: solo el reinicio real borra turnos de generaciones anteriores.
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
+    }
+
+    // --- 2.3.0: solicitudes de cobro ---
+    // El mesero crea la solicitud (pendiente) y solo puede cancelarla mientras
+    // siga pendiente. Aceptarla o rechazarla: solo un PC Main.
+    match /cafeterias/{cafeId}/chargeRequests/{reqId} {
+      allow read: if isMainOrBootstrap(cafeId)
+        || (canSend(cafeId) && resource.data.deviceId == request.auth.uid);
+      allow create: if genOk(cafeId, request.resource.data)
+        && request.resource.data.id == reqId
+        && (isMainOrBootstrap(cafeId)
+          || (approvedDevice(cafeId)
+            && request.resource.data.deviceId == request.auth.uid
+            && request.resource.data.status in ['pending', 'cancelled']));
+      allow update: if (isMainOrBootstrap(cafeId) && request.resource.data.id == reqId)
+        || (canSend(cafeId)
+            && resource.data.deviceId == request.auth.uid
+            && (request.resource.data == resource.data
+                || (resource.data.status == 'pending'
+                    && request.resource.data.status == 'cancelled'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'cancelledAt']))));
       allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }
 

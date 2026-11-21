@@ -1,6 +1,62 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.3.0 (solicitudes de cobro: por defecto solo los PC Main cobran)
+-----------------------------------------------------------------------
+Cambian index.html, sw.js y firestore.rules.
+
+ORDEN OBLIGATORIO
+1. Publica firestore.rules (2.3.0) en Firebase.
+2. Sube index.html, sw.js, firestore.rules y este LEEME.
+3. Abre el PC Main con internet: pasa automáticamente los equipos
+   secundarios a «sin cobro directo» (con 24 h para que terminen de enviar lo
+   que ya cobraron) y queda en la auditoría.
+4. Actualiza TODOS los equipos de meseros (ábrelos con internet y recarga).
+   Un equipo que siga en una versión anterior no podrá registrar ventas
+   después de esas 24 h.
+
+Cómo funciona
+- Un equipo secundario, por defecto, no cobra: el mesero toma el pedido (en
+  mesa o de mostrador) y, cuando el cliente va a pagar, pulsa «Solicitar
+  cobro». Indica el método que propone el cliente (efectivo, tarjeta,
+  transferencia, Nequi, Daviplata o mixto), una nota opcional, y la propina
+  sugerida va con el pedido.
+- Mientras la solicitud está pendiente, la mesa queda congelada: no se pueden
+  cambiar productos. El mesero puede cancelar su solicitud.
+- Los PC Main reciben las solicitudes al instante: aviso con sonido, contador
+  en el encabezado y aviso en Venta. «Cobrar» carga el pedido (o abre la
+  mesa) con el método y la propina propuestos; el Main confirma el pago con
+  el flujo de siempre (vueltos, pago dividido, abonos) y la mesa se libera.
+  «Rechazar» pide un motivo y el pedido vuelve al mesero.
+- El mesero ve el estado de cada solicitud (pendiente, aceptada, rechazada).
+  Un pedido de mostrador rechazado se puede «Recuperar» para corregirlo.
+- La venta queda a nombre del mesero (su equipo, su turno) y guarda qué PC
+  Main la cobró. En el turno del mesero, lo cobrado por el Main aparece
+  aparte y no cuenta como efectivo a entregar.
+- Si no hay ningún Main conectado, las solicitudes quedan en cola (también
+  sin conexión) y le llegan al Main cuando vuelva, sin perderse ni
+  duplicarse.
+
+«Cobro directo» (Ajustes > Dispositivos, solo PC Main)
+- Se activa o desactiva por equipo. Con el permiso, ese equipo cobra y
+  registra ventas (mesa y mostrador) como antes; útil en negocios pequeños o
+  si el Main se cae. Por defecto está desactivado.
+- Cada cambio queda en la auditoría y cada venta con cobro directo guarda el
+  equipo y la persona que cobró. A esas ventas se les sigue aplicando la
+  entrega a caja de la 2.1.
+- Al quitar el permiso, el equipo tiene 24 h para enviar lo que ya cobró.
+
+Reglas de Firestore (lo exige el servidor, no solo la interfaz)
+- Un equipo que no es Main y no tiene «Cobro directo» no puede crear ventas,
+  registrar abonos ni liberar mesas por cobro: solo crear y cancelar sus
+  solicitudes. Aceptar o rechazar: solo un PC Main. El permiso solo lo
+  cambia un PC Main.
+
+Compatibilidad
+- Una mesa con un cobro iniciado con la lógica anterior se puede cancelar o
+  convertir en solicitud (se reutiliza su número de operación, sin duplicar).
+  Si ya tenía el pago registrado, el PC Main la libera al confirmarse.
+
 VERSIÓN 2.2.0 (PIN por persona y bloqueo por inactividad)
 --------------------------------------------------------
 Cambian index.html, sw.js y firestore.rules (agrega la colección «staff»).

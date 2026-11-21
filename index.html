@@ -1268,6 +1268,20 @@
         flex-wrap: wrap;
         justify-content: flex-end;
       }
+      /* 2.3.0: solicitudes de cobro */
+      @keyframes reqPulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 #ff9a9066;
+        }
+        50% {
+          box-shadow: 0 0 0 6px #ff9a9000;
+        }
+      }
+      .req-pulse {
+        animation: reqPulse 1.4s infinite;
+        background: #b94b42 !important;
+      }
       /* 2.2.0: bloqueo con PIN */
       .pin-screen {
         z-index: 55;
@@ -1352,6 +1366,14 @@
           onclick="openSyncPanel()"
           title="Seguridad y licencia"
           style="display: none"
+        ></button
+        ><button
+          class="sync-chip"
+          id="reqChip"
+          type="button"
+          onclick="openReqModal()"
+          title="Solicitudes de cobro"
+          style="display: none"
         ></button>
       </div>
     </header>
@@ -1388,6 +1410,7 @@
               </button>
             </div>
           </div>
+          <div id="reqBanner" class="cash-banner sec-banner bad" style="display: none"></div>
           <div id="secBanner" class="cash-banner sec-banner" style="display: none"></div>
           <div id="ventaCashBanner" class="cash-banner" style="display: none"></div>
           <input
@@ -2571,6 +2594,35 @@
         </div>
       </div>
     </div>
+    <div class="modal-back" id="chargeReqModal">
+      <div class="modal">
+        <h2 id="chargeReqTitle">Solicitar cobro</h2>
+        <p class="sub">
+          El PC Main recibe la solicitud, cobra, calcula los vueltos y libera la
+          mesa. Mientras tanto no se pueden cambiar los productos.
+        </p>
+        <div id="chargeReqSummary" class="cash-breakdown"></div>
+        <label class="lbl" for="chargeReqMethod">Método que propone el cliente</label
+        ><select id="chargeReqMethod" class="field"></select
+        ><label class="lbl" for="chargeReqNote">Nota para el PC Main (opcional)</label
+        ><input id="chargeReqNote" class="field" maxlength="160" placeholder="Ej. paga con billete de 50.000" />
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('chargeReqModal')">Cancelar</button
+          ><button class="btn primary" id="chargeReqSend" onclick="sendChargeRequest()">
+            Enviar solicitud
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="reqModal">
+      <div class="modal modal-wide">
+        <h2>Solicitudes de cobro</h2>
+        <div id="reqModalBody"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('reqModal')">Cerrar</button>
+        </div>
+      </div>
+    </div>
     <div class="lock-screen pin-screen" id="pinLockScreen">
       <div class="lock-box">
         <div class="lock-icon">🔐</div>
@@ -2699,7 +2751,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.2.0",
+        APP_VERSION = "2.3.0",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -11849,6 +11901,9 @@
             lost: false,
             wipeRequested: false,
             drainUntil: null,
+            // 2.3.0: por defecto un secundario no cobra (envía solicitudes);
+            // el PC Main puede activar el «Cobro directo» por equipo.
+            directCharge: prev && prev.directCharge === true,
           };
         if (name) d.name = String(name).trim();
         devicesRef()
@@ -11898,6 +11953,8 @@
               if (mainIds().includes(d.id)) pills += ' <span class="pill ok">PC Main</span>';
               if (cloneSuspect) pills += ' <span class="pill off">Instalación distinta</span>';
               if (st.lockState) pills += ' <span class="pill wait">Bloqueo confirmado</span>';
+              if (d.active === true && !mainIds().includes(d.id))
+                pills += d.directCharge === true ? ' <span class="pill ok">Cobro directo</span>' : ' <span class="pill wait">Cobra el PC Main</span>';
               if (d.lost) {
                 notes.push("Reportado " + fmtDT(tsMs(d.lostAt)) + (d.lostReason ? " · " + d.lostReason : ""));
                 notes.push(d.wipeRequested ? (d.wipedAt ? "Datos borrados el " + fmtDT(tsMs(d.wipedAt)) : "Borrado pendiente: se ejecuta cuando el equipo se conecte") : "Solo bloqueo (sin borrado)");
@@ -11910,7 +11967,12 @@
               if (cloneSuspect) notes.push("Otra instalación reporta con este ID (posible copia del navegador)");
               let actions = "";
               if (!mine) {
-                if (d.active === true) actions = btn("danger", "revokeDevice", d.id, "Revocar") + " " + btn("danger", "markDeviceLost", d.id, "Perdido");
+                if (d.active === true)
+                  actions =
+                    (!mainIds().includes(d.id) ? btn("", "toggleDirectCharge", d.id, d.directCharge === true ? "Quitar cobro directo" : "Permitir cobro directo") + " " : "") +
+                    btn("danger", "revokeDevice", d.id, "Revocar") +
+                    " " +
+                    btn("danger", "markDeviceLost", d.id, "Perdido");
                 else
                   actions =
                     btn("primary", "authorizeFromList", d.id, d.revokedAt ? "Autorizar de nuevo" : "Autorizar") +
@@ -14897,9 +14959,23 @@
       startV2Listeners = function () {
         _startV2Listeners210();
         v2Listen("generation", () => genRef(), onGenerationSnap);
-        if (deviceIsMain()) v2Listen("receipts", () => cloudRoot().collection("cashReceipts"), onReceiptsSnap);
-        else if (syncUser) v2Listen("receipts", () => cloudRoot().collection("cashReceipts").where("collectedBy", "==", syncUser.uid), onReceiptsSnap);
+        // La consulta depende del rol: si el rol cambia (p. ej. el rol de Main
+        // se cargó después), se rehace la escucha con la consulta correcta.
+        if (deviceIsMain()) {
+          v2Unlisten("receipts:own");
+          v2Listen("receipts:main", () => cloudRoot().collection("cashReceipts"), onReceiptsSnap);
+        } else if (syncUser) {
+          v2Unlisten("receipts:main");
+          v2Listen("receipts:own", () => cloudRoot().collection("cashReceipts").where("collectedBy", "==", syncUser.uid), onReceiptsSnap);
+        }
       };
+      function v2Unlisten(key) {
+        if (!v2Unsubs[key]) return;
+        try {
+          v2Unsubs[key]();
+        } catch (e) {}
+        v2Unsubs[key] = null;
+      }
 
       // --- Reinicio real (PC Main) ---
       function versionLess(a, b) {
@@ -15827,6 +15903,709 @@
         if (pinActive()) setPinLocked(true);
         renderPinScreens();
       });
+
+      // ===== Bullet POS 2.3.0: solicitudes de cobro y permiso «Cobro directo» =====
+      // Por defecto un equipo secundario no cobra: envía una solicitud de cobro
+      // (chargeRequests/{id}) y un PC Main acepta el pago, registra la venta y
+      // libera la mesa. Con «Cobro directo» (lo activa un PC Main por equipo)
+      // el secundario cobra como antes. Las reglas de Firestore lo exigen.
+      const REQ_METHODS = ["Efectivo", "Tarjeta", "Transferencia", "Nequi", "Daviplata", "Mixto"];
+      let chargeReqs = new Map(),
+        reqActive = null,
+        reqFirstSnap = true,
+        reqAudio = null,
+        reqMigrated = false,
+        reqModalKind = null,
+        reqRecovered = new Set();
+      GEN_COLLECTIONS.push("chargeRequests");
+      GEN_DATA_COLS.push("chargeRequests");
+      GEN_LABELS.chargeRequests = "solicitudes de cobro";
+      BulletStore.ready.then(async () => {
+        try {
+          let m = await BulletStore.getMeta("chargeRequests"),
+            g = dataGen();
+          if (Array.isArray(m)) m.forEach((r) => r && r.id && (Number(r.gen) || 0) >= g && chargeReqs.set(r.id, r));
+          let rc = await BulletStore.getMeta("chargeRecovered");
+          if (Array.isArray(rc)) rc.forEach((id) => reqRecovered.add(id));
+        } catch (e) {}
+        renderReqUI();
+      });
+      function saveReqsLocal() {
+        let list = [...chargeReqs.values()].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0)).slice(0, 300);
+        BulletStore.putMeta("chargeRequests", list).catch(() => {});
+      }
+      // ¿Este equipo puede cobrar y registrar ventas por sí mismo?
+      function directChargeAllowed() {
+        if (!firebaseConfigured() || deviceIsMain() || !isRestrictedDevice()) return true;
+        return secState.directCharge === true;
+      }
+      const _handleOwnDeviceDoc230 = handleOwnDeviceDoc;
+      handleOwnDeviceDoc = function (snap, fromServer) {
+        if (snap && snap.exists) {
+          let d = snap.data() || {},
+            was = secState.directCharge === true;
+          secState.directCharge = d.directCharge === true;
+          if (was !== secState.directCharge) {
+            saveSec();
+            if (isRestrictedDevice()) toast(secState.directCharge ? "El PC Main activó el cobro directo en este equipo" : "Los cobros de este equipo ahora los hace el PC Main");
+            renderCart();
+          }
+        }
+        return _handleOwnDeviceDoc230(snap, fromServer);
+      };
+      function reqStaffId() {
+        try {
+          return localStorage.getItem(PIN_READY_KEY) || null;
+        } catch (e) {
+          return null;
+        }
+      }
+      function itemsSummary(items, n) {
+        let l = (items || []).map((x) => (Number(x.qty) || 1) + "× " + x.name);
+        return l.slice(0, n || 3).join(", ") + (l.length > (n || 3) ? " y " + (l.length - (n || 3)) + " más" : "");
+      }
+      function reqLabel(r) {
+        return r.kind === "table" ? "Mesa " + r.table : "Mostrador";
+      }
+      async function putRequest(r) {
+        r.updatedAt = Date.now();
+        chargeReqs.set(r.id, r);
+        saveReqsLocal();
+        if (firebaseConfigured()) await BulletSync.enqueueDoc("chargeRequests", r.id, r, { kind: "request" });
+        renderReqUI();
+      }
+
+      // --- Mesero: enviar la solicitud ---
+      function openChargeRequestModal(kind) {
+        reqModalKind = kind;
+        let t = kind === "table" ? ensureTable(activeTable) : null,
+          sub = kind === "table" ? tableSub(t) : subtotal(),
+          tip = tipAmount(),
+          paid = kind === "table" ? partialsSum(t) : 0;
+        if (!sub) {
+          toast(kind === "table" ? "La mesa no tiene productos" : "Agrega productos al pedido");
+          return;
+        }
+        gid("chargeReqTitle").textContent = kind === "table" ? "Solicitar cobro · Mesa " + activeTable : "Solicitar cobro · Mostrador";
+        gid("chargeReqSummary").innerHTML =
+          '<div class="line"><span>' +
+          esc(itemsSummary(kind === "table" ? t.items : cart, 6)) +
+          "</span><strong>" +
+          money(sub) +
+          "</strong></div>" +
+          '<div class="line"><span>Propina sugerida</span><strong>' +
+          money(tip) +
+          "</strong></div>" +
+          (paid ? '<div class="line"><span>Abonos ya registrados</span><strong>-' + money(paid) + "</strong></div>" : "") +
+          '<div class="line total"><span>Total a cobrar</span><strong>' +
+          money(sub + tip - paid) +
+          "</strong></div>";
+        gid("chargeReqMethod").innerHTML = REQ_METHODS.map((m) => '<option value="' + m + '"' + (m === payment ? " selected" : "") + ">" + m + "</option>").join("");
+        gid("chargeReqNote").value = "";
+        gid("chargeReqSend").disabled = false;
+        gid("chargeReqModal").classList.add("show");
+      }
+      async function sendChargeRequest() {
+        let kind = reqModalKind,
+          method = gid("chargeReqMethod").value,
+          note = gid("chargeReqNote").value.trim().slice(0, 160),
+          base = {
+            id: makeId(),
+            gen: dataGen(),
+            status: "pending",
+            kind,
+            deviceId: currentDeviceId(),
+            deviceName: BulletSupervision.myName(),
+            operator: operatorName() || null,
+            staffId: reqStaffId(),
+            shiftId: shiftOpen() ? curShift.id : null,
+            createdAt: new Date().toISOString(),
+            createdAtMs: Date.now(),
+            proposedMethod: method,
+            note,
+          };
+        gid("chargeReqSend").disabled = true;
+        if (kind === "table") {
+          let n = activeTable,
+            t = ensureTable(n),
+            co = tblCheckout(t);
+          if (!t.items.length || (co && co.state === "pendiente")) {
+            gid("chargeReqSend").disabled = false;
+            return toast(t.items.length ? lockMsg(t) : "La mesa no tiene productos");
+          }
+          if (!co) {
+            t.checkout = {
+              opId: makeId(), // paymentOperationId: el PC Main registra la venta con este ID
+              state: "iniciado",
+              subtotal: tableSub(t),
+              startedAt: new Date().toISOString(),
+              startedBy: currentDeviceId(),
+              startedByName: BulletSupervision.myName(),
+              operator: operatorName() || null,
+            };
+            co = t.checkout;
+          }
+          co.requestId = base.id;
+          saveTable(n);
+          Object.assign(base, {
+            table: n,
+            opId: co.opId,
+            items: t.items.map((x) => ({ ...x })),
+            subtotal: Number(co.subtotal) || tableSub(t),
+            tip: tipAmount(),
+            partialsPaid: partialsSum(t),
+          });
+          base.total = base.subtotal + base.tip;
+        } else {
+          Object.assign(base, {
+            table: null,
+            items: cart.map((x) => ({ ...x })),
+            subtotal: subtotal(),
+            tip: tipAmount(),
+            tipState: { mode: tipState.mode, custom: tipState.custom },
+          });
+          base.total = base.subtotal + base.tip;
+          cart.length = 0;
+          tipState.mode = "none";
+          tipState.custom = "";
+        }
+        await putRequest(base);
+        BulletAudit.record("chargeRequested", {
+          requestId: base.id,
+          table: base.table,
+          total: base.total,
+          method,
+          operatorName: base.operator,
+          shiftId: base.shiftId,
+        });
+        closeCashModal("chargeReqModal");
+        renderCart();
+        renderTables();
+        toast("Solicitud de cobro enviada al PC Main" + (navigator.onLine === false ? " (se enviará al reconectar)" : ""));
+      }
+      async function cancelChargeRequest(id) {
+        let r = chargeReqs.get(id);
+        if (!r || r.status !== "pending") return;
+        if (r.deviceId !== currentDeviceId() && !deviceIsMain()) return;
+        if (r.kind === "table") {
+          let t = ensureTable(r.table),
+            co = tblCheckout(t);
+          if (co && co.requestId === id && tblPartials(t).length && !deviceIsMain()) return toast("La mesa tiene abonos: pide al PC Main que cancele el cobro");
+        }
+        if (!confirm("¿Cancelar la solicitud de cobro de " + reqLabel(r) + "?")) return;
+        if (r.kind === "table") {
+          let t = ensureTable(r.table),
+            co = tblCheckout(t);
+          if (co && co.requestId === id) {
+            t.checkout = null;
+            saveTable(r.table);
+          }
+        }
+        r.status = "cancelled";
+        r.cancelledAt = Date.now();
+        await putRequest(r);
+        BulletAudit.record("chargeCancelled", { requestId: id, table: r.table != null ? r.table : null, total: r.total });
+        renderCart();
+        renderTables();
+        toast("Solicitud cancelada" + (r.kind === "table" ? ": la mesa vuelve a estar editable" : ""));
+      }
+      function recoverRequest(id) {
+        let r = chargeReqs.get(id);
+        if (!r || r.kind !== "counter" || r.status === "pending" || r.status === "accepted") return;
+        if (activeTable !== null) setActiveTable(null);
+        if (cart.length && !confirm("El pedido actual se reemplazará por el de la solicitud. ¿Continuar?")) return;
+        cart.length = 0;
+        (r.items || []).forEach((x) => cart.push({ ...x }));
+        if (r.tipState) {
+          tipState.mode = r.tipState.mode || "none";
+          tipState.custom = r.tipState.custom || "";
+        }
+        reqRecovered.add(id);
+        BulletStore.putMeta("chargeRecovered", [...reqRecovered].slice(-200)).catch(() => {});
+        closeCashModal("reqModal");
+        switchTab("venta");
+        renderCart();
+        toast("Pedido recuperado: corrígelo y vuelve a enviarlo");
+      }
+
+      // --- PC Main: aceptar o rechazar ---
+      async function acceptChargeRequest(id) {
+        let r = chargeReqs.get(id);
+        if (!r || r.status !== "pending") return toast("La solicitud ya no está pendiente");
+        if (!deviceIsMain()) return;
+        if (!cashSession || cashSession.status !== "open") {
+          if (!confirm("La caja está cerrada: la venta quedará sin caja. ¿Cobrar de todas formas?")) return;
+        }
+        if (r.kind === "table") {
+          let t = ensureTable(r.table),
+            co = tblCheckout(t);
+          if (!co || co.opId !== r.opId) {
+            pushDirtyTables();
+            return toast("La Mesa " + r.table + " aún no llega sincronizada con su solicitud. Intenta en unos segundos.");
+          }
+          if (co.state === "pendiente") return toast(lockMsg(t));
+          selectTable(r.table);
+        } else {
+          if (activeTable !== null) setActiveTable(null);
+          if (cart.length && reqActive !== id && !confirm("El carrito actual de este PC Main se reemplazará por el pedido de " + (r.operator || "el mesero") + ". ¿Continuar?")) return;
+          cart.length = 0;
+          (r.items || []).forEach((x) => cart.push({ ...x }));
+          tipState.mode = r.tip ? "custom" : "none";
+          tipState.custom = r.tip ? String(r.tip) : "";
+        }
+        reqActive = id;
+        let m = r.proposedMethod === "Mixto" ? "Efectivo" : REQ_METHODS.includes(r.proposedMethod) ? r.proposedMethod : "Efectivo";
+        payment = m;
+        received = "";
+        resetSplit();
+        if (r.proposedMethod === "Mixto") toggleSplit(true);
+        closeCashModal("reqModal");
+        switchTab("venta");
+        renderPayments();
+        renderCart();
+        renderCash && renderCash();
+        toast("Cobra " + reqLabel(r) + " de " + (r.operator || "el mesero") + ": revisa el pago y confirma");
+      }
+      async function rejectChargeRequest(id) {
+        let r = chargeReqs.get(id);
+        if (!r || r.status !== "pending" || !deviceIsMain()) return;
+        let reason = prompt("Motivo del rechazo para " + (r.operator || "el mesero") + " (" + reqLabel(r) + "):", "");
+        if (reason === null) return;
+        reason = reason.trim().slice(0, 160);
+        if (!reason) return toast("Escribe el motivo del rechazo");
+        if (r.kind === "table") {
+          let t = ensureTable(r.table),
+            co = tblCheckout(t);
+          if (co && co.requestId === id && co.state !== "pendiente") {
+            t.checkout = null;
+            saveTable(r.table);
+          }
+        }
+        Object.assign(r, { status: "rejected", rejectReason: reason, resolvedAt: Date.now(), resolvedBy: currentDeviceId(), resolvedByName: BulletSupervision.myName(), resolvedByOperator: operatorName() || null });
+        if (reqActive === id) reqActive = null;
+        await putRequest(r);
+        BulletAudit.record("chargeRejected", { requestId: id, table: r.table != null ? r.table : null, total: r.total, reason, operatorName: r.operator });
+        renderTables();
+        renderReqModal();
+        toast("Solicitud rechazada: el pedido vuelve al mesero");
+      }
+      // Toda venta pasa por aquí: se asocia a la solicitud y se registra quién cobró.
+      function requestForSale(sale) {
+        if (!sale || !deviceIsMain()) return null;
+        if (sale.table != null) {
+          for (let r of chargeReqs.values()) if (r.status === "pending" && r.kind === "table" && r.opId === String(sale.id)) return r;
+          return null;
+        }
+        let r = reqActive && chargeReqs.get(reqActive);
+        return r && r.status === "pending" && r.kind === "counter" ? r : null;
+      }
+      const _saveNewSale230 = BulletStore.saveNewSale;
+      BulletStore.saveNewSale = async function (sale) {
+        let req = requestForSale(sale);
+        if (req && !sale.voided) {
+          Object.assign(sale, {
+            requestId: req.id,
+            deviceId: req.deviceId,
+            deviceName: req.deviceName || null,
+            operator: req.operator || null,
+            shiftId: req.shiftId || null,
+            shiftOperator: req.operator || null,
+            staffId: req.staffId || null,
+            chargeMode: "main",
+            chargedBy: currentDeviceId(),
+            chargedByName: BulletSupervision.myName(),
+            chargedByOperator: operatorName() || null,
+          });
+        } else if (sale && !sale.voided && isRestrictedDevice() && firebaseConfigured()) {
+          Object.assign(sale, {
+            chargeMode: "direct",
+            chargedBy: currentDeviceId(),
+            chargedByName: BulletSupervision.myName(),
+            chargedByOperator: operatorName() || null,
+            staffId: sale.staffId || reqStaffId(),
+          });
+        }
+        let res = await _saveNewSale230(sale);
+        if (req) {
+          Object.assign(
+            req,
+            sale.voided
+              ? { status: "rejected", rejectReason: "Cuenta anulada por el PC Main" }
+              : { status: "accepted", saleId: String(sale.id), chargedTotal: Number(sale.total) || 0, chargedPayment: sale.payment || null },
+            { resolvedAt: Date.now(), resolvedBy: currentDeviceId(), resolvedByName: BulletSupervision.myName(), resolvedByOperator: operatorName() || null },
+          );
+          if (reqActive === req.id) reqActive = null;
+          await putRequest(req);
+          BulletAudit.record(sale.voided ? "chargeRejected" : "chargeAccepted", {
+            requestId: req.id,
+            saleId: String(sale.id),
+            table: req.table != null ? req.table : null,
+            total: Number(sale.total) || 0,
+            operatorName: req.operator,
+            shiftId: req.shiftId,
+          });
+        }
+        return res;
+      };
+      // Cancelar el cobro de una mesa también cierra su solicitud.
+      const _cancelTableCheckout230 = cancelTableCheckout;
+      cancelTableCheckout = async function () {
+        let n = activeTable,
+          co = n !== null ? tblCheckout(ensureTable(n)) : null,
+          rid = co && co.requestId;
+        await _cancelTableCheckout230();
+        let t = n !== null ? ensureTable(n) : null,
+          r = rid && chargeReqs.get(rid);
+        if (r && r.status === "pending" && t && !tblCheckout(t)) {
+          if (deviceIsMain())
+            Object.assign(r, { status: "rejected", rejectReason: "Cobro cancelado en la mesa por el PC Main", resolvedAt: Date.now(), resolvedBy: currentDeviceId(), resolvedByName: BulletSupervision.myName() });
+          else Object.assign(r, { status: "cancelled", cancelledAt: Date.now() });
+          await putRequest(r);
+        }
+      };
+      // Sin cobro directo el mesero no registra abonos (es dinero recibido).
+      const _registerPartialPayment230 = registerPartialPayment;
+      registerPartialPayment = async function () {
+        if (!directChargeAllowed()) return toast("Los abonos los registra el PC Main al cobrar");
+        return _registerPartialPayment230();
+      };
+      // Botón de cobro: en un equipo sin cobro directo envía una solicitud.
+      const _completeSale230 = completeSale;
+      completeSale = async function () {
+        if (directChargeAllowed()) return _completeSale230();
+        let b = opBlock(activeTable === null ? "new" : "finish");
+        if (b) return secBlockToast(b);
+        if (activeTable === null) return openChargeRequestModal("counter");
+        let t = ensureTable(activeTable),
+          co = tblCheckout(t);
+        if (co && co.state === "pendiente") return toast(lockMsg(t));
+        let r = co && co.requestId ? chargeReqs.get(co.requestId) : null;
+        if (r && r.status === "pending") return toast("Solicitud enviada: esperando al PC Main");
+        return openChargeRequestModal("table");
+      };
+      const _renderCart230 = renderCart;
+      renderCart = function () {
+        _renderCart230();
+        let b = gid("checkout");
+        if (!b) return;
+        if (deviceIsMain() && reqActive) {
+          let r = chargeReqs.get(reqActive);
+          if (r && r.status === "pending") b.textContent = "Cobrar solicitud de " + (r.operator || "mesero") + " · " + b.textContent.replace(/^Cobrar\s*/i, "");
+          return;
+        }
+        if (directChargeAllowed()) return;
+        if (activeTable === null) {
+          b.disabled = !cart.length;
+          b.textContent = "Enviar solicitud de cobro · " + money(total());
+          return;
+        }
+        let t = ensureTable(activeTable),
+          co = tblCheckout(t),
+          r = co && co.requestId ? chargeReqs.get(co.requestId) : null;
+        if (co && co.state === "pendiente") return;
+        if (r && r.status === "pending") {
+          b.disabled = true;
+          b.textContent = "Solicitud enviada · esperando al PC Main";
+        } else {
+          b.disabled = !t.items.length;
+          b.textContent = "Solicitar cobro · Mesa " + activeTable + " · " + money(total());
+        }
+      };
+
+      // --- Recepción en tiempo real ---
+      function reqBeep() {
+        try {
+          reqAudio = reqAudio || new (window.AudioContext || window.webkitAudioContext)();
+          let o = reqAudio.createOscillator(),
+            g = reqAudio.createGain();
+          o.type = "sine";
+          o.frequency.value = 880;
+          g.gain.value = 0.08;
+          o.connect(g);
+          g.connect(reqAudio.destination);
+          o.start();
+          setTimeout(() => (o.frequency.value = 1175), 160);
+          setTimeout(() => o.stop(), 340);
+        } catch (e) {}
+      }
+      function onReqSnap(snap) {
+        let me = currentDeviceId(),
+          g = dataGen(),
+          fresh = [];
+        snap.docs.forEach((d) => {
+          let r = { ...d.data(), id: d.id };
+          if ((Number(r.gen) || 0) < g) return;
+          if (opPending("chargeRequests/" + r.id)) return; // gana la versión local aún no enviada
+          let prev = chargeReqs.get(r.id);
+          chargeReqs.set(r.id, r);
+          if (deviceIsMain()) {
+            if (r.status === "pending" && (!prev || prev.status !== "pending") && !reqFirstSnap) fresh.push(r);
+          } else if (r.deviceId === me && prev && prev.status === "pending" && r.status !== "pending") {
+            if (r.status === "accepted") toast("✅ " + reqLabel(r) + ": el PC Main registró el cobro (" + money(r.chargedTotal || r.total) + ")");
+            if (r.status === "rejected")
+              setTimeout(
+                () => alert("❌ El PC Main rechazó el cobro de " + reqLabel(r) + (r.rejectReason ? ":\n" + r.rejectReason : ".") + (r.kind === "counter" ? "\n\nPuedes recuperar el pedido en «Solicitudes»." : "")),
+                50,
+              );
+          }
+        });
+        if (deviceIsMain() && reqFirstSnap && [...chargeReqs.values()].some((r) => r.status === "pending")) reqBeep();
+        reqFirstSnap = false;
+        if (fresh.length) {
+          reqBeep();
+          toast("🔔 Nueva solicitud de cobro: " + fresh.map((r) => reqLabel(r) + " (" + (r.operator || "mesero") + ")").join(", "));
+        }
+        saveReqsLocal();
+        renderReqUI();
+        renderCart();
+      }
+      function pendingReqs() {
+        return [...chargeReqs.values()].filter((r) => r.status === "pending").sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+      }
+      function myReqs() {
+        let me = currentDeviceId();
+        return [...chargeReqs.values()].filter((r) => r.deviceId === me).sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+      }
+      function renderReqUI() {
+        let chip = gid("reqChip"),
+          ban = gid("reqBanner"),
+          main = deviceIsMain(),
+          pend = main ? pendingReqs() : myReqs().filter((r) => r.status === "pending"),
+          rej = main ? [] : myReqs().filter((r) => r.status === "rejected" && r.kind === "counter" && !reqRecovered.has(r.id)),
+          show = firebaseConfigured() && (main ? true : !directChargeAllowed() || pend.length || rej.length);
+        if (chip) {
+          chip.style.display = show && (pend.length || rej.length || !main) ? "" : "none";
+          chip.className = "sync-chip " + (pend.length ? (main ? "bad req-pulse" : "pending") : rej.length ? "bad" : "ok");
+          chip.innerHTML =
+            "<i></i><span>" +
+            (main ? "🔔 " + pend.length + " solicitud(es) de cobro" : "Solicitudes: " + pend.length + " pendiente(s)" + (rej.length ? " · " + rej.length + " rechazada(s)" : "")) +
+            "</span>";
+        }
+        if (ban) {
+          let on = main && pend.length;
+          ban.style.display = on ? "flex" : "none";
+          if (on)
+            ban.innerHTML =
+              "<span>🔔 " +
+              pend.length +
+              " solicitud(es) de cobro pendiente(s): " +
+              esc(pend.slice(0, 3).map((r) => reqLabel(r) + " · " + (r.operator || "mesero") + " · " + money(r.total)).join(" | ")) +
+              '</span><button class="btn small primary" onclick="openReqModal()">Ver solicitudes</button>';
+        }
+        if (gid("reqModal") && gid("reqModal").classList.contains("show")) renderReqModal();
+      }
+      function openReqModal() {
+        renderReqModal();
+        gid("reqModal").classList.add("show");
+      }
+      function reqPill(r) {
+        return r.status === "pending"
+          ? '<span class="pill wait">Pendiente</span>'
+          : r.status === "accepted"
+            ? '<span class="pill ok">Aceptada</span>'
+            : r.status === "rejected"
+              ? '<span class="pill off">Rechazada</span>'
+              : '<span class="pill">Cancelada</span>';
+      }
+      function renderReqModal() {
+        let el = gid("reqModalBody");
+        if (!el) return;
+        let main = deviceIsMain(),
+          list = main ? pendingReqs() : myReqs().slice(0, 25),
+          done = main ? [...chargeReqs.values()].filter((r) => r.status !== "pending").sort((a, b) => (b.resolvedAt || b.updatedAt || 0) - (a.resolvedAt || a.updatedAt || 0)).slice(0, 12) : [];
+        const row = (r, actions) =>
+          '<div class="dev-row"><div><strong>' +
+          esc(reqLabel(r)) +
+          "</strong> · " +
+          esc(r.operator || r.deviceName || "—") +
+          " " +
+          reqPill(r) +
+          '<div class="sub">' +
+          esc(itemsSummary(r.items, 4)) +
+          "</div><div class=\"correction-log\">Total " +
+          money(r.total) +
+          (r.tip ? " (propina " + money(r.tip) + ")" : "") +
+          (r.partialsPaid ? " · abonos " + money(r.partialsPaid) : "") +
+          " · propone " +
+          esc(r.proposedMethod || "—") +
+          " · " +
+          esc(fmtDT(r.createdAtMs)) +
+          (r.shiftId ? " · turno " + esc(String(r.shiftId).slice(0, 8)) : "") +
+          (r.note ? " · " + esc(r.note) : "") +
+          (r.status === "rejected" && r.rejectReason ? "<br>Motivo del rechazo: " + esc(r.rejectReason) : "") +
+          (r.status === "accepted" ? "<br>Cobró " + esc(personLabel(r.resolvedBy, r.resolvedByName, r.resolvedByOperator)) + " · " + money(r.chargedTotal || r.total) + (r.chargedPayment ? " (" + esc(r.chargedPayment) + ")" : "") : "") +
+          '</div></div><div class="dev-actions">' +
+          actions +
+          "</div></div>";
+        el.innerHTML = main
+          ? (list.length
+              ? list
+                  .map((r) =>
+                    row(
+                      r,
+                      '<button class="btn small primary" onclick="acceptChargeRequest(\'' +
+                        esc(r.id) +
+                        "')\">Cobrar</button> <button class=\"btn small danger\" onclick=\"rejectChargeRequest('" +
+                        esc(r.id) +
+                        "')\">Rechazar</button>",
+                    ),
+                  )
+                  .join("")
+              : '<div class="sub">No hay solicitudes pendientes.</div>') +
+            (done.length ? '<h4 class="mini-title">Resueltas recientemente</h4>' + done.map((r) => row(r, "")).join("") : "")
+          : list.length
+            ? list
+                .map((r) =>
+                  row(
+                    r,
+                    r.status === "pending"
+                      ? '<button class="btn small" onclick="cancelChargeRequest(\'' + esc(r.id) + "')\">Cancelar solicitud</button>"
+                      : r.status !== "accepted" && r.kind === "counter" && !reqRecovered.has(r.id)
+                        ? '<button class="btn small primary" onclick="recoverRequest(\'' + esc(r.id) + "')\">Recuperar pedido</button>"
+                        : "",
+                  ),
+                )
+                .join("")
+            : '<div class="sub">Todavía no has enviado solicitudes de cobro.</div>';
+      }
+
+      // --- Permiso «Cobro directo» (gestión de dispositivos del PC Main) ---
+      async function toggleDirectCharge(id) {
+        if (!v2NeedOnlineMain("cambiar el cobro directo")) return;
+        let d = devicesList.find((x) => x.id === id);
+        if (!d || mainIds().includes(id)) return;
+        let on = d.directCharge !== true;
+        if (
+          !confirm(
+            (on ? "Activar" : "Desactivar") +
+              " el cobro directo en «" +
+              v2DeviceName(id) +
+              "».\n\n" +
+              (on
+                ? "Ese equipo podrá cobrar y registrar ventas (mesa y mostrador) sin pasar por el PC Main."
+                : "Sus cobros pasarán por solicitudes al PC Main. Lo que ya cobró se sigue enviando durante 24 h."),
+          )
+        )
+          return;
+        if (!(await requireMainPassword((on ? "activar" : "desactivar") + " el cobro directo"))) return;
+        try {
+          await withTimeout(
+            devicesRef()
+              .doc(id)
+              .set(
+                {
+                  directCharge: on,
+                  directChargeChangedAt: Date.now(),
+                  directChargeChangedBy: syncUser.uid,
+                  directChargeGrace: on ? null : firebase.firestore.Timestamp.fromMillis(Date.now() + 24 * 3600000),
+                },
+                { merge: true },
+              ),
+            15000,
+          );
+        } catch (e) {
+          return toast(devErrMsg(e));
+        }
+        BulletAudit.record(on ? "directChargeEnabled" : "directChargeDisabled", { deviceId: id });
+        toast(on ? "Cobro directo activado en " + v2DeviceName(id) : "Cobro directo desactivado en " + v2DeviceName(id));
+      }
+      // Migración: los secundarios existentes quedan sin cobro directo (por
+      // defecto), con 24 h para enviar lo que ya cobraron con la lógica anterior.
+      async function migrateDirectCharge() {
+        if (reqMigrated || !deviceIsMain() || !syncReady || !deviceApproved || navigator.onLine === false || !devicesList.length) return;
+        let ids = mainIds(),
+          targets = devicesList.filter((d) => d.active === true && !ids.includes(d.id) && !("directCharge" in d));
+        reqMigrated = true;
+        if (!targets.length) return;
+        try {
+          let b = syncDb.batch(),
+            grace = firebase.firestore.Timestamp.fromMillis(Date.now() + 24 * 3600000);
+          targets.forEach((d) =>
+            b.set(devicesRef().doc(d.id), { directCharge: false, directChargeGrace: grace, directChargeChangedAt: Date.now(), directChargeChangedBy: "migración 2.3.0" }, { merge: true }),
+          );
+          await withTimeout(b.commit(), 15000);
+          BulletAudit.record("directChargeMigrated", { count: targets.length });
+        } catch (e) {
+          reqMigrated = false;
+          console.warn("Migración de cobro directo:", e && (e.code || e.message));
+        }
+      }
+      const _renderDevices230 = renderDevices;
+      renderDevices = function () {
+        _renderDevices230();
+        migrateDirectCharge();
+      };
+
+      // --- Turnos: lo que cobró el PC Main no es efectivo del mesero ---
+      const _shiftSummary230 = shiftSummary;
+      shiftSummary = function (sh) {
+        let r = _shiftSummary230(sh),
+          byMain = data.sales.filter((s) => s.shiftId === sh.id && !s.voided && s.chargeMode === "main");
+        r.cashCollected = Math.max(0, (r.cashCollected || 0) - byMain.reduce((a, s) => a + saleCashPart(s), 0));
+        r.chargedByMainCount = byMain.length;
+        r.chargedByMainTotal = byMain.reduce((a, s) => a + cashAmount(s.total), 0);
+        return r;
+      };
+      const _shiftBreakdownHtml230 = shiftBreakdownHtml;
+      shiftBreakdownHtml = function (sum, sh) {
+        let h = _shiftBreakdownHtml230(sum, sh);
+        if (!sum.chargedByMainCount) return h;
+        return (
+          h +
+          '<div class="line muted"><span>Cobrado por el PC Main (solicitudes)</span><strong>' +
+          sum.chargedByMainCount +
+          " · " +
+          money(sum.chargedByMainTotal) +
+          "</strong></div>"
+        );
+      };
+
+      // --- Integración ---
+      const _startV2Listeners230 = startV2Listeners;
+      startV2Listeners = function () {
+        _startV2Listeners230();
+        if (deviceIsMain()) {
+          if (v2Unsubs["chargeReqs:own"]) reqFirstSnap = true;
+          v2Unlisten("chargeReqs:own");
+          v2Listen("chargeReqs:main", () => cloudRoot().collection("chargeRequests").where("createdAtMs", ">=", Date.now() - 3 * 86400000), onReqSnap);
+        } else if (syncUser) {
+          v2Unlisten("chargeReqs:main");
+          v2Listen("chargeReqs:own", () => cloudRoot().collection("chargeRequests").where("deviceId", "==", syncUser.uid), onReqSnap);
+        }
+        migrateDirectCharge();
+      };
+      const _renderRoleUI230 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI230();
+        renderReqUI();
+      };
+      // Al reiniciar los datos también se borran las solicitudes.
+      const _resetWarnings230 = resetWarnings;
+      resetWarnings = function () {
+        let w = _resetWarnings230(),
+          p = pendingReqs().length;
+        if (p) w.push(p + " solicitud(es) de cobro pendiente(s) también se eliminarán.");
+        return w;
+      };
+      Object.assign(AUDIT_LABEL, {
+        chargeRequested: "Solicitud de cobro enviada",
+        chargeAccepted: "Solicitud de cobro aceptada (venta registrada por el PC Main)",
+        chargeRejected: "Solicitud de cobro rechazada",
+        chargeCancelled: "Solicitud de cobro cancelada",
+        directChargeEnabled: "Cobro directo activado en un equipo",
+        directChargeDisabled: "Cobro directo desactivado en un equipo",
+        directChargeMigrated: "Equipos secundarios pasados a solicitudes de cobro",
+      });
+      const _auditSummary230 = auditSummary;
+      auditSummary = function (d) {
+        d = d || {};
+        let base = _auditSummary230(d),
+          extra = [];
+        if (d.requestId) extra.push("solicitud " + String(d.requestId).slice(0, 8));
+        if (d.method) extra.push("propone " + d.method);
+        return [base].concat(extra).filter(Boolean).join(" · ");
+      };
+      renderReqUI();
 
       renderArchiveLog();
 
