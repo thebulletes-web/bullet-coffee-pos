@@ -1,6 +1,54 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+ACTUALIZAR A LA VERSIÓN 1.6.0 (IndexedDB + cola de sincronización)
+------------------------------------------------------------------
+ORDEN OBLIGATORIO. Las reglas deben publicarse ANTES que la app: con las reglas
+anteriores la caja compartida (control, cashSessions, cashMovements) y el panel
+de dispositivos (deviceStatus, audit) quedan denegados.
+
+0. Antes de empezar, en el PC Main pulsa "Respaldo JSON" y guarda el archivo.
+1. Firebase Console > Firestore Database > Rules: pega el contenido completo de
+   firestore.rules (1.6.0) y pulsa Publicar.
+2. Sube a la raíz del repositorio (rama que publica GitHub Pages):
+      index.html   sw.js   firestore.rules   LEEME_Integracion.txt
+   NO cambies firebase-config.js ni manifest.webmanifest ni los íconos.
+3. Espera a que GitHub Pages termine de publicar (pestaña Actions o Settings >
+   Pages). Abre la app con internet en cada dispositivo y recárgala una vez:
+   el Service Worker nuevo (bullet-pos-v1.6.0) reemplaza la versión anterior.
+4. Al abrir 1.6.0 por primera vez, cada dispositivo copia sus datos de
+   localStorage a IndexedDB, verifica venta por venta y solo entonces marca la
+   migración. La copia original de localStorage NO se borra.
+   Compruébalo en Ajustes > "Almacenamiento y sincronización".
+5. PC Main: si aún no está configurado, en Ajustes > Administración principal
+   pulsa "Configurar este equipo como Main" y escribe la contraseña inicial:
+   setup . Después cámbiala (mínimo 8 caracteres) con "Cambiar contraseña".
+   Si el equipo ya era Main en 1.5.0, conserva la contraseña que tenía.
+6. Dispositivos secundarios: autorízalos desde el PC Main (Ajustes >
+   Dispositivos). Así quedan con rol de operación (role = "cashier").
+
+Qué cambia para el usuario:
+- Cada venta se guarda en IndexedDB (venta + cola en una sola transacción)
+  antes de mostrar "Venta registrada". Si no se puede guardar, la venta NO se
+  registra y el carrito se conserva.
+- El indicador bajo "Último respaldo" muestra: ventas pendientes, en envío,
+  errores o "Sincronizado". Tócalo para ver el panel completo y "Sincronizar
+  ahora". Una venta figura como confirmada solo cuando Firebase la recibió.
+- Antes de cerrar la caja, el PC Main revisa la cola local y el último reporte
+  de cada dispositivo. Si hay equipos desconectados, con estado desconocido o
+  con ventas pendientes, avisa; si se cierra igual, queda registrado.
+- Ventas que llegan después del cierre conservan su caja original y aparecen
+  como "ventas tardías" para conciliar; el cierre original no se modifica.
+- Correcciones de medio de pago en cajas cerradas se registran como ajustes
+  aparte (el esperado/diferencia originales del cierre se conservan).
+- Imprimir: formatos Ticket 58 mm, Ticket 80 mm y Hoja carta, usando el
+  diálogo de impresión del sistema. NO es impresión directa ESC/POS.
+- "Restaurar JSON" ahora descarga primero una copia del estado actual y
+  FUSIONA: agrega ventas que no existen y nunca sobrescribe las existentes.
+
+Si un navegador no permite IndexedDB, la app sigue usando localStorage y lo
+indica en rojo en el indicador de sincronización.
+
 ARCHIVOS
 --------
 index.html             Aplicación lista para GitHub Pages.
