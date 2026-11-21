@@ -13661,8 +13661,9 @@
             : L("Verificación offline", "No aplica (sin Firebase)")) +
           L("Licencia", lic.label) +
           L("Turno", shiftOpen() ? (curShift.operator || "—") + " desde " + fmtDT(curShift.openedAt) : shiftsRequired() ? "Sin turno (obligatorio para vender)" : "Sin turno") +
+          L("ID de este equipo", currentDeviceId()) +
           L("Instalación", String(secState.installId).slice(0, 8)) +
-          '</div><div class="actions" style="margin-top:8px"><button class="btn" onclick="checkAuthorizationNow()">Verificar autorización ahora</button>' +
+          '</div><div class="actions" style="margin-top:8px"><button class="btn" onclick="checkAuthorizationNow()">Verificar autorización ahora</button><button class="btn" onclick="copyLockDeviceId()">Copiar ID</button>' +
           (shiftsRequired() || shiftOpen() ? '<button class="btn" onclick="closeSyncPanel();openShiftModal()">' + (shiftOpen() ? "Cerrar turno" : "Iniciar turno") + "</button>" : "") +
           "</div></div>"
         );

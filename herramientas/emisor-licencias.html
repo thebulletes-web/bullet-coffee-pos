@@ -340,9 +340,13 @@
           $("pubState").textContent = "No se encontró ../firebase-config.js";
           return false;
         }
-        if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
-        auth = firebase.auth();
-        db = firebase.firestore();
+        // Conexión de Firebase PROPIA (app con nombre) y sesión solo para esta
+        // pestaña: iniciar sesión aquí nunca reemplaza la identidad anónima del
+        // POS en este navegador (eso dejaba al equipo como «Pendiente»).
+        let app = firebase.apps.find((a) => a.name === "bullet-vendor") || firebase.initializeApp(window.FIREBASE_CONFIG, "bullet-vendor");
+        auth = app.auth();
+        auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
+        db = app.firestore();
         auth.onAuthStateChanged((u) => ($("pubState").textContent = u ? "Sesión: " + (u.email || u.uid) + (u.emailVerified ? " (verificado)" : " (correo sin verificar)") : "Sin sesión"));
         if (window.POS_CONFIG && window.POS_CONFIG.cafeId && !$("cafeId").value) $("cafeId").value = window.POS_CONFIG.cafeId;
         return true;
