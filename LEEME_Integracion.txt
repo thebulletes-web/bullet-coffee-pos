@@ -1,6 +1,89 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.1.0 (reinicio real de datos y entrega a caja de los cobros de meseros)
+-------------------------------------------------------------------------------
+Incluye todo lo de 2.0.0. Cambian index.html, sw.js y firestore.rules.
+
+ORDEN OBLIGATORIO
+1. Respaldo JSON en el PC Main.
+2. Publica firestore.rules (2.1.0) en Firebase Console > Firestore > Rules.
+3. Sube index.html, sw.js, firestore.rules y este LEEME.
+4. Actualiza TODOS los dispositivos (ábrelos con internet y recarga) ANTES de
+   hacer un reinicio. Un equipo que siga en 2.0.0 o anterior no puede subir
+   ventas después de un reinicio hasta actualizarse.
+
+1. Reinicio real de datos (Ajustes > Reinicio global de historial)
+- Ya no es un archivado: borra de verdad, en Firebase y en todos los equipos,
+  las ventas, cajas, movimientos, turnos, entregas a caja, mesas, estados
+  temporales, la cola de sincronización y la auditoría local.
+- Se conservan: productos, categorías, licencia, roles, PC Main,
+  dispositivos, seguridad, configuración, medios de pago, configuración de
+  caja y de mesas, y la auditoría en Firebase (que registra el reinicio).
+- Antes descarga un respaldo JSON y un Excel completos y muestra el resumen
+  de lo que se borrará. Pide la contraseña del PC Main y escribir REINICIAR
+  exactamente (en mayúsculas).
+- Mensajes claros, nunca falla en silencio: contraseña incorrecta, texto
+  incorrecto, mesas abiertas, caja abierta (con ventas o movimientos), turnos
+  abiertos, operaciones pendientes y error de sincronización.
+- Si la limpieza en Firebase se corta (por ejemplo, sin internet), queda
+  marcada como incompleta y se puede terminar con «Reintentar limpieza».
+- Después del reinicio la caja queda cerrada: ábrela con la base inicial.
+
+  Generación de datos (control/generation):
+- Cada reinicio sube un número de generación. Cada venta, caja, movimiento,
+  turno y entrega guarda su generación, y las reglas de Firestore rechazan
+  datos de una generación anterior: un equipo antiguo no puede volver a subir
+  lo que se borró.
+- Cada equipo lo detecta solo (al conectarse y en cada sincronización) y,
+  sin intervención del usuario, limpia su historial y su cola de
+  sincronización. Muestra: «Se detectó un reinicio global. Los datos
+  pendientes del periodo anterior fueron limpiados correctamente.»
+- Ventas hechas sin conexión DESPUÉS del reinicio (el equipo aún no lo sabía)
+  se conservan y se suben. Las de ANTES se retiran de la cola y quedan
+  guardadas aparte en el equipo (cuarentena): nunca se reintentan.
+- Ya no quedan reintentos infinitos con «Permiso denegado»: las operaciones
+  de periodos anteriores se purgan automáticamente.
+
+  Reparar sincronización (solo PC Main; Ajustes > Almacenamiento y
+  sincronización, o en el panel de sincronización):
+- Comprueba la generación del servidor, vacía la cola del equipo, retira las
+  operaciones de periodos anteriores y los errores permanentes (quedan
+  guardados aparte), recalcula el estado de las ventas y vuelve a enviar los
+  datos válidos. Queda en la auditoría como «Reparación de sincronización».
+
+2. Cobro de meseros separado de la entrega a caja
+- Cuando un mesero cobra, la venta queda como «Pago recibido · pendiente de
+  entrega a caja», con medio de pago, valor, fecha, hora, mesero y turno. La
+  mesa se libera para el cliente, pero el dinero NO cuenta todavía en la caja.
+- PC Main, Caja > «Cobros pendientes de entrega a caja»: mesa, mesero,
+  turno, valor, método, hora y equipo. «Confirmar entrega» (por cobro o todo
+  lo de un mesero) pide el valor recibido y registra quién recibió, la hora,
+  el equipo y la diferencia si la hay. Solo entonces la venta entra en la caja
+  abierta y cuenta para el cierre.
+- Requiere tener la caja abierta. Una entrega confirmada en una caja
+  posterior cuenta en esa caja (no aparece como venta tardía).
+- Medios de pago (Ajustes > Seguridad y operación): el efectivo siempre
+  requiere entrega. Datáfono, Nequi, Daviplata y Transferencia: marca cuáles
+  requieren entrega; los demás se confirman automáticamente. Se puede
+  desactivar la separación por completo.
+- Cierre de turno: muestra ventas, propinas, cobros pendientes, entregas
+  realizadas y diferencias. Si hay pendientes, avisa al mesero y el PC Main
+  ve la advertencia en Caja.
+- Cierre de caja: antes de cerrar muestra los cobros pendientes por entregar.
+  Se puede cancelar para resolverlos o continuar; la decisión queda
+  registrada.
+- Informes: cuadre diario con recibidas/entregadas/pendientes por mesero y
+  turno; Excel con hojas «Entregas a caja» y «Entregas por mesero».
+- Auditoría: pago recibido, entrega confirmada, diferencia en entrega
+  (modificación administrativa), cierre con cobros pendientes, cobros
+  conciliados en el cierre y turno cerrado con pendientes.
+- «Caja» es la sección Caja del PC Main: allí se confirman las entregas.
+
+CORREGIDO EN 2.1.0
+- Al cerrar el turno con internet, el equipo podía tomar su propio cierre como
+  «cerrado por el PC Main» y, si se abría otro turno enseguida, cerrarlo.
+
 VERSIÓN 2.0.0 (seguridad de dispositivos, turnos, licencias, reinicio global y caja)
 ------------------------------------------------------------------------------------
 Incluye todo lo de 1.9.0 y anteriores. Cambian index.html, sw.js y

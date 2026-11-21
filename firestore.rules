@@ -1,5 +1,7 @@
 rules_version = '2';
-// Bullet POS 2.0.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.1.0 — Reglas de seguridad de Firestore.
+// 2.1.0: generación de datos (control/generation) para el reinicio real y
+// entregas a caja (cashReceipts). Ver la sección «generación de datos».
 // Todos los datos viven en cafeterias/{cafeId}/... y solo los dispositivos
 // autorizados de ESE negocio (devices/{uid}.active == true) pueden usarlos.
 // PC Main: UID incluido en control/admin.mainDeviceIds (máximo 2), o
@@ -87,6 +89,24 @@ service cloud.firestore {
       return !exists(licensePath(cafeId)) || licenseValid(get(licensePath(cafeId)).data);
     }
 
+    // --- 2.1.0: generación de datos (reinicio real) ---
+    // control/generation.gen sube en cada reinicio. Los datos de operación
+    // llevan su campo "gen": no se puede crear nada de una generación vieja
+    // (un equipo antiguo no revive lo borrado) y el PC Main solo puede borrar
+    // documentos de generaciones anteriores. Sin documento: generación 0.
+    function genPath(cafeId) {
+      return /databases/$(database)/documents/cafeterias/$(cafeId)/control/generation;
+    }
+    function curGen(cafeId) {
+      return exists(genPath(cafeId)) ? get(genPath(cafeId)).data.get('gen', 0) : 0;
+    }
+    function genOk(cafeId, d) {
+      return d.get('gen', 0) == curGen(cafeId);
+    }
+    function oldGen(cafeId, d) {
+      return d.get('gen', 0) < curGen(cafeId);
+    }
+
     // --- Sumas de pagos (máximo 8 pagos por venta) ---
     function amt(p, i) {
       return p.size() > i ? p[i].amount : 0;
@@ -148,7 +168,8 @@ service cloud.firestore {
       // venta cobra una mesa, su ID es el paymentOperationId (idempotencia) y
       // la suma de los pagos debe cubrir el total.
       // 2.0.0: un equipo revocado con plazo puede terminar de enviar sus ventas.
-      allow create: if isMainOrBootstrap(cafeId)
+      // 2.1.0: toda venta nueva debe ser de la generación vigente.
+      allow create: if genOk(cafeId, request.resource.data) && (isMainOrBootstrap(cafeId)
         || (canSend(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.total is number
@@ -157,15 +178,16 @@ service cloud.firestore {
             && (request.resource.data.get('table', null) == null
                 || (request.resource.data.get('paymentOperationId', '') == saleId
                     && request.resource.data.get('payments', []).size() <= 8
-                    && paySum(request.resource.data.get('payments', [])) >= request.resource.data.total)));
+                    && paySum(request.resource.data.get('payments', [])) >= request.resource.data.total))));
       // Anular, corregir el pago o archivar: solo el PC Main. El dueño de la
       // venta solo puede reenviarla sin cambios (reintento idempotente).
       allow update: if isMainOrBootstrap(cafeId)
         || (canSend(cafeId)
             && resource.data.deviceId == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().size() == 0);
-      // Las ventas nunca se eliminan (se anulan o archivan).
-      allow delete: if false;
+      // Las ventas de la generación vigente nunca se eliminan (se anulan o
+      // archivan). 2.1.0: el reinicio real borra las de generaciones anteriores.
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }
 
     // --- Mesas: máquina de estados del cobro ---
@@ -331,15 +353,30 @@ service cloud.firestore {
     }
 
     // --- Caja compartida: todos la leen, solo un PC Main la administra ---
+    // 2.1.0: cajas y movimientos llevan la generación; los de generaciones
+    // anteriores no se crean ni modifican, y solo el reinicio los borra.
     match /cafeterias/{cafeId}/cashSessions/{sessionId} {
       allow read: if approvedDevice(cafeId);
-      allow create, update: if isMain(cafeId);
-      allow delete: if false;
+      allow create: if isMain(cafeId) && genOk(cafeId, request.resource.data);
+      allow update: if isMain(cafeId) && genOk(cafeId, resource.data) && genOk(cafeId, request.resource.data);
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }
     match /cafeterias/{cafeId}/cashMovements/{moveId} {
       allow read: if approvedDevice(cafeId);
-      allow create, update: if isMain(cafeId);
-      allow delete: if false;
+      allow create: if isMain(cafeId) && genOk(cafeId, request.resource.data);
+      allow update: if isMain(cafeId) && genOk(cafeId, resource.data) && genOk(cafeId, request.resource.data);
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
+    }
+    // 2.1.0: entrega a caja de un cobro de mesero (una por venta). Solo un PC
+    // Main la confirma; no cambia después. El mesero ve las de sus cobros.
+    match /cafeterias/{cafeId}/cashReceipts/{saleId} {
+      allow read: if isMainOrBootstrap(cafeId)
+        || (canSend(cafeId) && resource.data.collectedBy == request.auth.uid);
+      allow create: if isMainOrBootstrap(cafeId)
+        && request.resource.data.saleId == saleId
+        && genOk(cafeId, request.resource.data);
+      allow update: if isMainOrBootstrap(cafeId) && request.resource.data == resource.data;
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }
 
     // --- Reporte de estado de cada dispositivo (supervisión de los Main) ---
@@ -370,11 +407,12 @@ service cloud.firestore {
       allow get: if isMainOrBootstrap(cafeId)
         || (canSend(cafeId) && (resource == null || resource.data.deviceId == request.auth.uid));
       allow list: if isMainOrBootstrap(cafeId);
-      allow create: if (isMainOrBootstrap(cafeId) && request.resource.data.id == shiftId)
-        || (approvedDevice(cafeId) && licenseOk(cafeId)
+      allow create: if genOk(cafeId, request.resource.data)
+        && ((isMainOrBootstrap(cafeId) && request.resource.data.id == shiftId)
+          || (approvedDevice(cafeId) && licenseOk(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.id == shiftId
-            && request.resource.data.status in ['open', 'closed']);
+            && request.resource.data.status in ['open', 'closed']));
       allow update: if (isMainOrBootstrap(cafeId)
             && request.resource.data.id == shiftId
             && (resource.data.status == 'open'
@@ -385,7 +423,8 @@ service cloud.firestore {
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.id == shiftId
             && (resource.data.status == 'open' || request.resource.data == resource.data));
-      allow delete: if false;
+      // 2.1.0: solo el reinicio real borra turnos de generaciones anteriores.
+      allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }
 
     // --- 2.0.0: historial de reinicios globales (la época vigente está en

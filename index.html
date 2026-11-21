@@ -1614,6 +1614,10 @@
               el efectivo sin cerrar la caja y queda registrado.
             </p>
           </div>
+          <div class="set-card" id="deliveryCard" style="display: none">
+            <h3>Cobros pendientes de entrega a caja</h3>
+            <div id="deliveryBox" class="notice"></div>
+          </div>
           <div class="set-card" id="shiftsCard" style="display: none">
             <h3>Turnos de meseros</h3>
             <div id="shiftsBox" class="notice"></div>
@@ -1815,6 +1819,26 @@
                   ></label
                 >
               </div>
+              <div class="wide">
+                <label class="tip-check"
+                  ><input type="checkbox" id="polDelivery" /><span
+                    >Separar el cobro de los meseros de la entrega a caja (el
+                    dinero cuenta para la caja solo cuando el PC Main confirma la
+                    entrega)</span
+                  ></label
+                >
+                <div class="sub" style="margin-top: 6px">
+                  El efectivo siempre requiere entrega. Para los medios digitales
+                  elige cuáles requieren entrega; los demás se confirman
+                  automáticamente:
+                </div>
+                <div class="actions" style="margin-top: 6px" id="polDeliveryMethods">
+                  <label class="tip-check"><input type="checkbox" data-dm="Tarjeta" /><span>Datáfono (tarjeta)</span></label
+                  ><label class="tip-check"><input type="checkbox" data-dm="Nequi" /><span>Nequi</span></label
+                  ><label class="tip-check"><input type="checkbox" data-dm="Daviplata" /><span>Daviplata</span></label
+                  ><label class="tip-check"><input type="checkbox" data-dm="Transferencia" /><span>Transferencia</span></label>
+                </div>
+              </div>
             </div>
             <button class="btn primary" style="margin-top: 10px" onclick="savePolicyForm()">
               Guardar política
@@ -1831,14 +1855,16 @@
             <h3>Reinicio global de historial</h3>
             <div id="resetBox" class="sub"></div>
             <button class="btn danger" style="margin-top: 10px" onclick="openHistoryReset()">
-              Reiniciar historial…
+              Reiniciar datos de operación…
             </button>
             <p class="notice">
-              Empieza un periodo nuevo en todos los dispositivos. No se borra
-              ninguna venta: las anteriores quedan archivadas en Firebase y en
-              los respaldos, y antes se descargan un JSON y un Excel completos.
-              Requiere conexión, caja recién abierta sin ventas, sin mesas
-              abiertas y sin operaciones pendientes en este equipo.
+              Borra de verdad las ventas, cajas, movimientos, turnos, entregas y
+              mesas en Firebase y en todos los dispositivos (nueva generación de
+              datos). Se conservan productos, categorías, licencia, roles, PC
+              Main, dispositivos, seguridad y configuración. Antes se descargan un
+              JSON y un Excel completos. Requiere conexión, caja cerrada (o recién
+              abierta sin ventas), sin mesas ni turnos abiertos y sin operaciones
+              pendientes.
             </p>
           </div>
           <div class="set-card">
@@ -1890,7 +1916,9 @@
             <div class="sub" id="storageState">Consultando…</div>
             <div class="actions" style="margin-top: 10px">
               <button class="btn primary" onclick="openSyncPanel()">
-                Ver estado de sincronización
+                Ver estado de sincronización</button
+              ><button class="btn" id="repairSyncBtn" onclick="repairSync()" style="display: none">
+                Reparar sincronización
               </button>
             </div>
           </div>
@@ -2418,26 +2446,32 @@
     </div>
     <div class="modal-back" id="resetModal">
       <div class="modal modal-wide">
-        <h2>Reinicio global de historial</h2>
+        <h2>Reinicio real de datos de operación</h2>
         <div id="resetInfo"></div>
         <label class="lbl" for="resetNote">Motivo u observación</label
         ><input
           id="resetNote"
           class="field"
           maxlength="160"
-          placeholder="Ej. Inicio de Bullet POS 2.0"
-        /><label class="lbl" for="resetConfirmText"
-          >Escribe REINICIAR para confirmar</label
+          placeholder="Ej. Fin de pruebas, inicio de producción"
+        /><label class="lbl" for="resetPass">Contraseña administrativa (PC Main)</label
+        ><input id="resetPass" class="field" type="password" autocomplete="off" /><label
+          class="lbl"
+          for="resetConfirmText"
+          >Escribe REINICIAR (en mayúsculas) para confirmar</label
         ><input id="resetConfirmText" class="field" maxlength="20" autocomplete="off" />
+        <div id="resetError" class="warnnote sec-banner bad" style="display: none; margin-top: 10px"></div>
+        <div id="resetProgress" class="notice"></div>
         <p class="notice">
-          Se descargan primero un respaldo JSON y un Excel completos (permite las
-          descargas múltiples si el navegador lo pregunta). Después, en todos los
-          dispositivos, el historial activo empieza vacío. Las ventas anteriores
-          no se borran: quedan archivadas en Firebase, en este equipo y en los
-          respaldos. La auditoría y los cierres de caja se conservan.
+          Primero se descargan un respaldo JSON y un Excel completos (permite las
+          descargas múltiples si el navegador lo pregunta). Después se borran los
+          datos de operación en Firebase y en todos los dispositivos. Esta acción
+          no se puede deshacer, salvo restaurando el respaldo descargado.
         </p>
         <div class="modal-actions">
           <button class="btn" onclick="closeCashModal('resetModal')">Cancelar</button
+          ><button class="btn" id="resetRetryBtn" onclick="retryGenerationCleanup()" style="display: none">
+            Reintentar limpieza</button
           ><button class="btn danger" id="resetConfirmBtn" onclick="confirmHistoryReset()">
             Descargar copias y reiniciar
           </button>
@@ -2516,8 +2550,8 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.0.0",
-        APP_BUILD = "2026-11-21";
+        APP_VERSION = "2.1.0",
+        APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
         voidingId = null,
@@ -5710,6 +5744,8 @@
           openingNote: note,
           day: cashDay(),
           createdAt: Date.now(),
+          // 2.1.0: generación de datos (el servidor rechaza generaciones viejas).
+          gen: typeof dataGen === "function" ? dataGen() : 0,
         };
         if (syncReady && deviceApproved) {
           try {
@@ -5890,6 +5926,7 @@
           nextNote = gid("closeNextNote").value.trim(),
           closed = {
             ...cashSession,
+            gen: typeof dataGen === "function" ? dataGen() : 0,
             status: "closed",
             closedAt: new Date().toISOString(),
             closedBy: syncUser?.uid || "local",
@@ -5941,6 +5978,7 @@
           createdAt: Date.now(),
           autoOpened: true,
           previousSessionId: closed.id,
+          gen: typeof dataGen === "function" ? dataGen() : 0,
         };
         if (syncReady && deviceApproved) {
           try {
@@ -6035,6 +6073,7 @@
           operator: operatorName() || null,
           // 2.0.0: categoría del movimiento (caja fuerte, proveedor, gasto…).
           category: (gid("cashMoveCat") && gid("cashMoveCat").value) || null,
+          gen: typeof dataGen === "function" ? dataGen() : 0,
           syncState: "pending",
         };
         cashMovements.unshift(m);
@@ -12043,6 +12082,7 @@
           openingNote: note,
           cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
           appVersion: APP_VERSION,
+          gen: typeof dataGen === "function" ? dataGen() : 0,
         };
         saveShiftLocal(s);
         await pushShiftHistory(s);
@@ -12087,6 +12127,8 @@
             closeNotes: gid("shiftCloseNote").value.trim().slice(0, 160),
           };
         gid("shiftConfirmBtn").disabled = true;
+        // El cierre propio no debe disparar el aviso de «cierre forzado».
+        stopOwnShiftWatch();
         try {
           if (firebaseConfigured()) await BulletSync.enqueueDoc("shifts", closed.id, closed, { kind: "shift" });
         } catch (e) {
@@ -12134,12 +12176,16 @@
             async (snap) => {
               if (!snap.exists || snap.metadata.hasPendingWrites) return;
               let d = snap.data();
-              if (d.status !== "closed" || !curShift || curShift.id !== snap.id) return;
+              // 2.1.0: solo un cierre forzado por el PC Main (el cierre hecho en
+              // este equipo también llega por aquí y no debe tratarse como forzado).
+              if (d.status !== "closed" || d.closeMode !== "forced" || !curShift || curShift.id !== snap.id) return;
               try {
                 await BulletStore.del("outbox", "shifts/" + snap.id);
                 await BulletSync.refreshStats();
               } catch (e) {}
               await pushShiftHistory(d);
+              // Si mientras tanto se abrió otro turno, no se toca.
+              if (!curShift || curShift.id !== snap.id) return;
               saveShiftLocal(null);
               stopOwnShiftWatch();
               renderSecurityUI();
@@ -13490,6 +13536,9 @@
             if (!snap.exists || opPending("control/policy")) return;
             let d = snap.data();
             data.settings.policy = {
+              // 2.1.0: entrega a caja (separar cobro de entrega y medios digitales).
+              separateDelivery: d.separateDelivery !== false,
+              deliveryMethods: d.deliveryMethods && typeof d.deliveryMethods === "object" ? d.deliveryMethods : {},
               requireShifts: d.requireShifts !== false,
               secondaryLeaseHours: Number(d.secondaryLeaseHours) || DEFAULT_POLICY.secondaryLeaseHours,
               mainLeaseHours: Number(d.mainLeaseHours) || DEFAULT_POLICY.mainLeaseHours,
@@ -13778,6 +13827,1336 @@
       if (gid("closeDenomGrid")) gid("closeDenomGrid").innerHTML = denomGridHtml("dnC");
       renderLockScreen();
       renderSecurityUI();
+
+      // ===== Bullet POS 2.1.0: reinicio real de datos (generaciones) y entrega a caja =====
+      // 1. Reinicio real: borra los datos de operación en Firebase y en todos
+      //    los equipos. Cada documento lleva su generación ("gen") y las reglas
+      //    rechazan generaciones viejas: un equipo antiguo no puede volver a
+      //    subir lo que se borró.
+      // 2. El cobro de un mesero queda «pendiente de entrega a caja» hasta que
+      //    el PC Main confirma que recibió el dinero (cashReceipts/{saleId}).
+      const GEN_KEY = "bullet_data_gen_v21",
+        GEN_NOTICE_KEY = "bullet_gen_notice_v21",
+        DELIVERY_METHODS = ["Tarjeta", "Nequi", "Daviplata", "Transferencia"],
+        GEN_COLLECTIONS = ["sales", "cashSessions", "cashMovements", "shifts", "cashReceipts", "mesas", "deviceStatus"],
+        GEN_LABELS = {
+          sales: "ventas",
+          cashSessions: "cajas",
+          cashMovements: "movimientos de caja",
+          shifts: "turnos",
+          cashReceipts: "entregas a caja",
+          mesas: "mesas",
+          deviceStatus: "estados temporales de dispositivos",
+        };
+      function dataGen() {
+        try {
+          return Math.max(0, Number(localStorage.getItem(GEN_KEY)) || 0);
+        } catch (e) {
+          return 0;
+        }
+      }
+      function setDataGen(g) {
+        try {
+          localStorage.setItem(GEN_KEY, String(g));
+        } catch (e) {}
+        BulletStore.putMeta("dataGen", g).catch(() => {});
+      }
+      function genRef() {
+        return cloudRoot().collection("control").doc("generation");
+      }
+
+      // --- Política: entrega a caja ---
+      const _posPolicy210 = posPolicy;
+      posPolicy = function () {
+        let p = _posPolicy210(),
+          raw = (data.settings && data.settings.policy) || {},
+          dm = raw.deliveryMethods && typeof raw.deliveryMethods === "object" ? raw.deliveryMethods : {};
+        p.separateDelivery = raw.separateDelivery !== false;
+        p.deliveryMethods = {};
+        DELIVERY_METHODS.forEach((m) => (p.deliveryMethods[m] = dm[m] === true));
+        return p;
+      };
+      savePolicyForm = async function () {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede cambiar la política");
+          return;
+        }
+        let sec = Number(gid("polSecLease").value),
+          main = Number(gid("polMainLease").value),
+          thr = Number(gid("polDiffThr").value),
+          dm = {};
+        if (!LEASE_OPTIONS.includes(sec) || !LEASE_OPTIONS.includes(main) || !Number.isFinite(thr) || thr < 0) {
+          toast("Revisa los valores de la política");
+          return;
+        }
+        document.querySelectorAll("#polDeliveryMethods input[data-dm]").forEach((x) => (dm[x.dataset.dm] = !!x.checked));
+        let before = posPolicy(),
+          after = {
+            requireShifts: gid("polShifts").checked,
+            secondaryLeaseHours: sec,
+            mainLeaseHours: main,
+            diffNoteThreshold: Math.round(thr),
+            separateDelivery: gid("polDelivery").checked,
+            deliveryMethods: dm,
+          };
+        const lbl = (p) =>
+          "turnos " +
+          (p.requireShifts ? "obligatorios" : "opcionales") +
+          ", offline secundarios " +
+          p.secondaryLeaseHours +
+          " h, offline Main " +
+          p.mainLeaseHours +
+          " h, observación desde " +
+          money(p.diffNoteThreshold) +
+          ", entrega a caja " +
+          (p.separateDelivery ? "separada (efectivo" + DELIVERY_METHODS.filter((m) => p.deliveryMethods[m]).map((m) => ", " + m).join("") + ")" : "automática");
+        if (lbl(before) === lbl(after)) {
+          toast("Sin cambios");
+          return;
+        }
+        if (!(await requireMainPassword("cambiar la política de seguridad"))) {
+          renderPolicyForm();
+          return;
+        }
+        let cfg = { ...after, updatedAt: Date.now(), updatedBy: currentDeviceId() };
+        data.settings.policy = cfg;
+        persist();
+        if (firebaseConfigured()) await BulletSync.enqueueDoc("control", "policy", cfg, { kind: "business" });
+        BulletAudit.record("policyChanged", { setting: "política de seguridad y operación", before: lbl(before), after: lbl(after) });
+        renderSecurityUI();
+        toast("Política actualizada en todos los dispositivos");
+      };
+      const _renderPolicyForm210 = renderPolicyForm;
+      renderPolicyForm = function () {
+        if (!gid("polDelivery")) return _renderPolicyForm210();
+        if (document.activeElement && gid("policyCard") && gid("policyCard").contains(document.activeElement)) return;
+        _renderPolicyForm210();
+        let p = posPolicy(),
+          main = deviceIsMain();
+        gid("polDelivery").checked = p.separateDelivery;
+        gid("polDelivery").disabled = !main;
+        document.querySelectorAll("#polDeliveryMethods input[data-dm]").forEach((x) => {
+          x.checked = p.deliveryMethods[x.dataset.dm] === true;
+          x.disabled = !main;
+        });
+      };
+
+      // --- Entrega a caja: estado de cada cobro ---
+      let receipts = new Map(),
+        deliveryGroups = [];
+      BulletStore.ready.then(async () => {
+        try {
+          let m = Number(await BulletStore.getMeta("dataGen")) || 0;
+          if (m > dataGen()) localStorage.setItem(GEN_KEY, String(m));
+          let r = await BulletStore.getMeta("cashReceipts");
+          if (r && typeof r === "object") Object.values(r).forEach((x) => x && x.saleId && receipts.set(String(x.saleId), x));
+        } catch (e) {}
+        renderSecurityUI();
+      });
+      function saveReceiptsLocal() {
+        let o = {};
+        receipts.forEach((r, k) => (o[k] = r));
+        BulletStore.putMeta("cashReceipts", o).catch(() => {});
+      }
+      function deliveryRequiredFor(method) {
+        return method === "Efectivo" || posPolicy().deliveryMethods[method] === true;
+      }
+      function saleNeedsDelivery(s) {
+        return !!(s && s.delivery && s.delivery.required);
+      }
+      function receiptOf(s) {
+        return s ? receipts.get(String(s.id)) || null : null;
+      }
+      function deliveryState(s) {
+        if (!saleNeedsDelivery(s)) return null;
+        if (s.voided) return "anulada";
+        return receiptOf(s) ? "entregado" : "pendiente";
+      }
+      // Caja a la que pertenece una venta: la de la entrega si requiere entrega.
+      function effSession(s) {
+        if (saleNeedsDelivery(s)) {
+          let r = receiptOf(s);
+          return r ? r.cashSessionId || null : null;
+        }
+        return s.cashSessionId;
+      }
+      function pendingDeliveries() {
+        return data.sales.filter((s) => deliveryState(s) === "pendiente");
+      }
+      function deliveryWho(s) {
+        return (s.delivery && s.delivery.operator) || s.operator || deviceLabel(s);
+      }
+      // Ventas de la caja abierta: un cobro de mesero entra solo al entregarse.
+      sessionSales = function () {
+        let id = cashSession && cashSession.id;
+        if (!id) return [];
+        return data.sales.filter((s) => !s.voided && effSession(s) === id);
+      };
+      lateSalesFor = function (h) {
+        if (!h || !Array.isArray(h.includedSaleIds)) return [];
+        let inc = new Set(h.includedSaleIds.map(String));
+        (Array.isArray(h.lateReconciliations) ? h.lateReconciliations : []).forEach((r) => (r.saleIds || []).forEach((id) => inc.add(String(id))));
+        return data.sales.filter((s) => !s.voided && effSession(s) === h.id && !inc.has(String(s.id)));
+      };
+      const _paymentState210 = paymentState;
+      paymentState = function (s) {
+        let b = _paymentState210(s),
+          d = deliveryState(s);
+        if (d === "pendiente") return "Pago recibido · pendiente de entrega a caja";
+        if (d === "entregado") return b + " · entregada a caja";
+        return b;
+      };
+      // Cobro de un mesero: se registra como «pago recibido» y queda pendiente.
+      const _saveNewSale210 = BulletStore.saveNewSale;
+      BulletStore.saveNewSale = async function (sale) {
+        if (sale && sale.gen == null) sale.gen = dataGen();
+        let pend = null;
+        if (sale && !sale.voided && !sale.delivery && isRestrictedDevice() && posPolicy().separateDelivery) {
+          let pays = salePayments(sale).filter((p) => deliveryRequiredFor(p.method)),
+            amount = pays.reduce((a, p) => a + cashAmount(p.amount), 0);
+          if (amount > 0)
+            sale.delivery = pend = {
+              required: true,
+              amount,
+              methods: [...new Set(pays.map((p) => p.method))],
+              collectedBy: currentDeviceId(),
+              collectedByName: BulletSupervision.myName(),
+              operator: operatorName() || null,
+              shiftId: shiftOpen() ? curShift.id : null,
+              collectedAt: sale.date,
+            };
+        }
+        let r = await _saveNewSale210(sale);
+        if (pend) {
+          BulletAudit.record("paymentReceived", {
+            saleId: String(sale.id),
+            table: sale.table != null ? sale.table : null,
+            deliveryAmount: pend.amount,
+            methods: pend.methods,
+            operatorName: pend.operator,
+            shiftId: pend.shiftId,
+            state: "pendiente de entrega",
+          });
+          setTimeout(() => toast("Pago recibido · pendiente de entrega a caja (" + money(pend.amount) + ")"), 2300);
+        }
+        return r;
+      };
+      function onReceiptsSnap(snap) {
+        let g = dataGen();
+        snap.docs.forEach((d) => {
+          let r = d.data();
+          if (r && r.saleId && (Number(r.gen) || 0) >= g) receipts.set(String(r.saleId), r);
+        });
+        saveReceiptsLocal();
+        renderCashDashboard();
+        renderSecurityUI();
+        if (gid("historial") && gid("historial").classList.contains("active")) renderSales();
+      }
+      // PC Main: confirma que el dinero llegó físicamente a la caja.
+      async function confirmDelivery(ids) {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main recibe entregas a caja");
+          return;
+        }
+        let b = opBlock("finish");
+        if (b) return secBlockToast(b);
+        if (!cashSession || cashSession.status !== "open") {
+          toast("Abre la caja para recibir entregas");
+          return;
+        }
+        let list = (ids || []).map((id) => data.sales.find((s) => String(s.id) === String(id))).filter((s) => deliveryState(s) === "pendiente");
+        if (!list.length) {
+          toast("No hay cobros pendientes para confirmar");
+          return;
+        }
+        let total = list.reduce((a, s) => a + cashAmount(s.delivery.amount), 0),
+          who = [...new Set(list.map(deliveryWho))].join(", "),
+          methods = [...new Set(list.flatMap((s) => s.delivery.methods || []))].join(", "),
+          v = prompt(
+            "CONFIRMAR ENTREGA A CAJA\n\n" + list.length + " cobro(s) de " + who + "\nValor esperado: " + money(total) + " (" + methods + ")\n\nValor recibido (COP):",
+            String(total),
+          );
+        if (v === null) return;
+        // En COP el punto y la coma son separadores de miles: «100.000» = cien mil.
+        let received = Math.round(Number(String(v).replace(/[^\d]/g, "")));
+        if (String(v).trim() === "" || !Number.isFinite(received) || received < 0) {
+          toast("Valor recibido no válido");
+          return;
+        }
+        let diff = received - total;
+        if (diff !== 0 && !confirm("El valor recibido difiere del esperado: " + diffInfo(diff).label + ".\nLa diferencia queda en la auditoría. ¿Confirmar la entrega?")) return;
+        let at = new Date().toISOString(),
+          batchId = makeId();
+        for (let s of list) {
+          let rc = {
+            id: String(s.id),
+            saleId: String(s.id),
+            amount: cashAmount(s.delivery.amount),
+            methods: s.delivery.methods || [],
+            cashSessionId: cashSession.id,
+            deliveredAt: at,
+            receivedBy: currentDeviceId(),
+            receivedByName: BulletSupervision.myName(),
+            receiverOperator: operatorName() || null,
+            collectedBy: s.delivery.collectedBy || s.deviceId || null,
+            collectorOperator: s.delivery.operator || s.operator || null,
+            shiftId: s.delivery.shiftId || s.shiftId || null,
+            table: s.table != null ? s.table : null,
+            batchId,
+            batchCount: list.length,
+            batchExpected: total,
+            batchReceived: received,
+            batchDifference: diff,
+            gen: dataGen(),
+          };
+          receipts.set(rc.saleId, rc);
+          if (firebaseConfigured()) await BulletSync.enqueueDoc("cashReceipts", rc.id, rc, { kind: "receipt" });
+        }
+        saveReceiptsLocal();
+        BulletAudit.record("deliveryConfirmed", {
+          sessionId: cashSession.id,
+          count: list.length,
+          total,
+          received,
+          difference: diff,
+          operatorName: who,
+          shiftId: list[0].delivery.shiftId || null,
+          saleIds: list.slice(0, 40).map((s) => String(s.id)),
+        });
+        if (diff !== 0)
+          BulletAudit.record("deliveryDifference", { sessionId: cashSession.id, total, received, difference: diff, operatorName: who, reason: "valor recibido distinto del cobrado" });
+        renderCashDashboard();
+        renderSales();
+        toast("Entrega confirmada: " + money(received) + (diff ? " (" + diffInfo(diff).label + ")" : ""));
+      }
+      function confirmDeliveryGroup(i) {
+        let g = deliveryGroups[i];
+        if (g) return confirmDelivery(g.ids);
+      }
+      function renderDeliveryCard() {
+        let card = gid("deliveryCard"),
+          el = gid("deliveryBox");
+        if (!card || !el) return;
+        let main = deviceIsMain(),
+          pend = pendingDeliveries().sort((a, b) => String(a.date).localeCompare(String(b.date))),
+          today = cashDay(),
+          done = data.sales
+            .filter((s) => deliveryState(s) === "entregado" && dayKey(receiptOf(s).deliveredAt) === today)
+            .sort((a, b) => String(receiptOf(b).deliveredAt).localeCompare(String(receiptOf(a).deliveredAt))),
+          show = main && (posPolicy().separateDelivery || pend.length || done.length);
+        card.style.display = show ? "block" : "none";
+        if (!show) return;
+        let open = !!(cashSession && cashSession.status === "open"),
+          groups = new Map();
+        pend.forEach((s) => {
+          let k = deliveryWho(s) + "|" + (s.delivery.shiftId || "");
+          if (!groups.has(k)) groups.set(k, { who: deliveryWho(s), shiftId: s.delivery.shiftId || null, ids: [], total: 0 });
+          let g = groups.get(k);
+          g.ids.push(String(s.id));
+          g.total += cashAmount(s.delivery.amount);
+        });
+        deliveryGroups = [...groups.values()];
+        let closedWithPend = shiftsList.filter((sh) => sh.status === "closed" && pend.some((s) => s.delivery.shiftId === sh.id));
+        const shortSh = (id) => (id ? String(id).slice(0, 8) : "Sin turno");
+        el.innerHTML =
+          '<div class="sub">' +
+          (pend.length
+            ? "<strong>" + pend.length + " cobro(s) pendiente(s) · " + money(pend.reduce((a, s) => a + cashAmount(s.delivery.amount), 0)) + "</strong>. No cuentan en la caja hasta confirmar la entrega."
+            : "No hay cobros pendientes de entrega.") +
+          (open ? "" : " · Abre la caja para recibir entregas.") +
+          "</div>" +
+          closedWithPend
+            .map((sh) => '<div class="warnnote" style="margin-top:8px">⚠ El turno de ' + esc(sh.operator || "—") + " (" + esc(sh.deviceName || v2DeviceName(sh.deviceId)) + ") se cerró con cobros pendientes de entrega.</div>")
+            .join("") +
+          deliveryGroups
+            .map(
+              (g, i) =>
+                '<div class="dev-row"><div><strong>' +
+                esc(g.who) +
+                "</strong> · turno " +
+                esc(shortSh(g.shiftId)) +
+                " · " +
+                g.ids.length +
+                " cobro(s) · " +
+                money(g.total) +
+                '</div><div class="dev-actions"><button class="btn small primary" onclick="confirmDeliveryGroup(' +
+                i +
+                ')"' +
+                (open ? "" : " disabled") +
+                ">Confirmar entrega de todo</button></div></div>",
+            )
+            .join("") +
+          (pend.length
+            ? '<div class="table-wrap"><table><thead><tr><th>Mesa</th><th>Mesero</th><th>Turno</th><th>Valor</th><th>Método</th><th>Hora</th><th>Equipo</th><th></th></tr></thead><tbody>' +
+              pend
+                .map(
+                  (s) =>
+                    "<tr><td>" +
+                    (s.table != null ? "Mesa " + esc(s.table) : "Venta rápida") +
+                    "</td><td>" +
+                    esc(deliveryWho(s)) +
+                    "</td><td>" +
+                    esc(shortSh(s.delivery.shiftId)) +
+                    "</td><td>" +
+                    money(s.delivery.amount) +
+                    (cashAmount(s.delivery.amount) !== cashAmount(s.total) ? '<div class="correction-log">total ' + money(s.total) + "</div>" : "") +
+                    "</td><td>" +
+                    esc((s.delivery.methods || []).join(" + ")) +
+                    "</td><td>" +
+                    esc(fmtDT(s.date)) +
+                    "</td><td>" +
+                    esc(s.delivery.collectedByName || deviceLabel(s)) +
+                    '</td><td><button class="btn small" onclick="confirmDelivery([\'' +
+                    esc(s.id) +
+                    "'])\"" +
+                    (open ? "" : " disabled") +
+                    ">Confirmar entrega</button></td></tr>",
+                )
+                .join("") +
+              "</tbody></table></div>"
+            : "") +
+          (done.length
+            ? '<h4 class="mini-title">Entregadas hoy</h4><div class="table-wrap"><table><thead><tr><th>Entrega</th><th>Mesero</th><th>Valor</th><th>Recibió</th><th>Diferencia del lote</th></tr></thead><tbody>' +
+              done
+                .slice(0, 40)
+                .map((s) => {
+                  let r = receiptOf(s);
+                  return (
+                    "<tr><td>" +
+                    esc(fmtDT(r.deliveredAt)) +
+                    "</td><td>" +
+                    esc(deliveryWho(s)) +
+                    "</td><td>" +
+                    money(r.amount) +
+                    "</td><td>" +
+                    esc(personLabel(r.receivedBy, r.receivedByName, r.receiverOperator)) +
+                    '</td><td class="' +
+                    diffInfo(r.batchDifference).cls +
+                    '">' +
+                    esc(diffInfo(r.batchDifference).label) +
+                    "</td></tr>"
+                  );
+                })
+                .join("") +
+              "</tbody></table></div>"
+            : "");
+      }
+      // Estadísticas de entrega por mesero y turno (informes y cuadre diario).
+      function deliveryStats(filter) {
+        let m = new Map();
+        data.sales
+          .filter((s) => saleNeedsDelivery(s) && !s.voided && (!filter || filter(s)))
+          .forEach((s) => {
+            let k = deliveryWho(s) + "|" + (s.delivery.shiftId || ""),
+              o = m.get(k) || { who: deliveryWho(s), shiftId: s.delivery.shiftId || null, day: saleDay(s), rc: 0, ra: 0, dc: 0, da: 0, pc: 0, pa: 0 },
+              a = cashAmount(s.delivery.amount);
+            o.rc++;
+            o.ra += a;
+            if (receiptOf(s)) {
+              o.dc++;
+              o.da += a;
+            } else {
+              o.pc++;
+              o.pa += a;
+            }
+            m.set(k, o);
+          });
+        return [...m.values()].sort((a, b) => b.ra - a.ra);
+      }
+
+      // --- Turnos: cobros pendientes y entregas en el resumen ---
+      const _shiftSummary210 = shiftSummary;
+      shiftSummary = function (sh) {
+        let r = _shiftSummary210(sh),
+          ds = data.sales.filter((s) => s.shiftId === sh.id && !s.voided && saleNeedsDelivery(s)),
+          pend = ds.filter((s) => !receiptOf(s)),
+          del = ds.filter((s) => receiptOf(s)),
+          batches = new Map();
+        del.forEach((s) => {
+          let x = receiptOf(s);
+          if (x.batchId) batches.set(x.batchId, Number(x.batchDifference) || 0);
+        });
+        r.pendingCount = pend.length;
+        r.pendingAmount = pend.reduce((a, s) => a + cashAmount(s.delivery.amount), 0);
+        r.deliveredCount = del.length;
+        r.deliveredAmount = del.reduce((a, s) => a + cashAmount(s.delivery.amount), 0);
+        r.deliveryDifference = [...batches.values()].reduce((a, x) => a + x, 0);
+        return r;
+      };
+      const _shiftBreakdownHtml210 = shiftBreakdownHtml;
+      shiftBreakdownHtml = function (sum, sh) {
+        let h = _shiftBreakdownHtml210(sum, sh);
+        if (!posPolicy().separateDelivery && !sum.pendingCount && !sum.deliveredCount) return h;
+        const L = (a, b, c) => '<div class="line' + (c ? " " + c : "") + '"><span>' + esc(a) + "</span><strong>" + esc(b) + "</strong></div>";
+        return (
+          h +
+          L("Cobros pendientes de entrega", (sum.pendingCount || 0) + " · " + money(sum.pendingAmount || 0), sum.pendingCount ? "total" : "") +
+          L("Entregado a caja (confirmado)", (sum.deliveredCount || 0) + " · " + money(sum.deliveredAmount || 0)) +
+          (sum.deliveryDifference ? L("Diferencias en entregas", diffInfo(sum.deliveryDifference).label) : "")
+        );
+      };
+      const _confirmShiftClose210 = confirmShiftClose;
+      confirmShiftClose = async function () {
+        if (!shiftOpen()) return _confirmShiftClose210();
+        let sum = shiftSummary(curShift),
+          id = curShift.id;
+        if (
+          sum.pendingCount &&
+          !confirm(
+            "Tienes " +
+              sum.pendingCount +
+              " cobro(s) sin entregar a caja por " +
+              money(sum.pendingAmount) +
+              ".\nEntrégalos al PC Main. Si cierras el turno, el PC Main verá la advertencia. ¿Cerrar el turno?",
+          )
+        )
+          return;
+        await _confirmShiftClose210();
+        if (!shiftOpen() && sum.pendingCount)
+          BulletAudit.record("shiftClosedWithPending", { shiftId: id, operatorName: operatorName() || null, count: sum.pendingCount, deliveryAmount: sum.pendingAmount });
+      };
+      const _forceCloseShift210 = forceCloseShift;
+      forceCloseShift = async function (id) {
+        let sh = shiftsList.find((x) => x.id === id);
+        if (sh) {
+          let s = shiftSummary(sh);
+          if (s.pendingCount && !confirm("El turno de " + (sh.operator || "—") + " tiene " + s.pendingCount + " cobro(s) pendientes de entrega (" + money(s.pendingAmount) + ").\nSeguirán pendientes en Caja. ¿Cerrar el turno?"))
+            return;
+        }
+        return _forceCloseShift210(id);
+      };
+
+      // --- Cierre de caja: cobros pendientes antes de cerrar ---
+      const _preCloseCheck210 = BulletSupervision.preCloseCheck;
+      BulletSupervision.preCloseCheck = async function () {
+        let r = await _preCloseCheck210(),
+          pend = pendingDeliveries();
+        if (pend.length) {
+          let by = {};
+          pend.forEach((s) => (by[deliveryWho(s)] = (by[deliveryWho(s)] || 0) + 1));
+          r.issues.push({
+            text:
+              pend.length +
+              " cobro(s) pendiente(s) de entrega a caja por " +
+              money(pend.reduce((a, s) => a + cashAmount(s.delivery.amount), 0)) +
+              " (" +
+              Object.keys(by)
+                .map((k) => k + ": " + by[k])
+                .join(", ") +
+              "). No están en esta caja. Cancela para resolverlos en Caja > Cobros pendientes, o continúa y quedará registrado.",
+          });
+        }
+        return r;
+      };
+      const _cashCloseExtras210 = cashCloseExtras200;
+      cashCloseExtras200 = function () {
+        let x = _cashCloseExtras210(),
+          pend = pendingDeliveries();
+        x.pendingDeliveriesAtClose = pend.map((s) => ({ saleId: String(s.id), amount: cashAmount(s.delivery.amount), operator: deliveryWho(s), shiftId: s.delivery.shiftId || null }));
+        return x;
+      };
+      const _confirmCloseCash210 = confirmCloseCash;
+      confirmCloseCash = async function () {
+        let before = cashSession && cashSession.status === "open" ? cashSession.id : null,
+          pend = pendingDeliveries();
+        await _confirmCloseCash210();
+        let h = cashHistory[0];
+        if (!before || !h || h.id !== before) return;
+        if (pend.length)
+          BulletAudit.record("cashClosedWithPendingDeliveries", {
+            sessionId: h.id,
+            count: pend.length,
+            deliveryAmount: pend.reduce((a, s) => a + cashAmount(s.delivery.amount), 0),
+            reason: "el usuario continuó con el cierre",
+          });
+        let inc = new Set((h.includedSaleIds || []).map(String)),
+          rec = data.sales.filter((s) => inc.has(String(s.id)) && saleNeedsDelivery(s));
+        if (rec.length)
+          BulletAudit.record("deliveriesReconciled", { sessionId: h.id, count: rec.length, deliveryAmount: rec.reduce((a, s) => a + cashAmount(s.delivery.amount), 0) });
+      };
+
+      // --- Panel de caja, turnos e informes ---
+      const _renderCashDashboard210 = renderCashDashboard;
+      renderCashDashboard = function () {
+        _renderCashDashboard210();
+        renderDeliveryCard();
+      };
+      const _renderShiftsCard210 = renderShiftsCard;
+      renderShiftsCard = function () {
+        _renderShiftsCard210();
+        let el = gid("shiftsBox");
+        if (!el || !deviceIsMain()) return;
+        let warn = shiftsList
+          .map((sh) => ({ sh, s: shiftSummary(sh) }))
+          .filter((x) => x.s.pendingCount);
+        if (warn.length)
+          el.insertAdjacentHTML(
+            "afterbegin",
+            warn
+              .map(
+                (x) =>
+                  '<div class="warnnote">⚠ ' +
+                  esc(x.sh.operator || "—") +
+                  " (" +
+                  (x.sh.status === "open" ? "turno abierto" : "turno cerrado") +
+                  "): " +
+                  x.s.pendingCount +
+                  " cobro(s) pendientes de entrega · " +
+                  money(x.s.pendingAmount) +
+                  "</div>",
+              )
+              .join(""),
+          );
+      };
+      const _renderDaily210 = renderDaily;
+      renderDaily = async function () {
+        await _renderDaily210();
+        let el = gid("dailyReport"),
+          day = gid("dailyDate") && gid("dailyDate").value;
+        if (!el || !day || !gid("caja").classList.contains("active")) return;
+        let st = deliveryStats((s) => saleDay(s) === day);
+        if (!st.length) return;
+        el.insertAdjacentHTML(
+          "beforeend",
+          '<h4 class="mini-title">Entregas a caja del día (por mesero y turno)</h4><div class="table-wrap"><table><thead><tr><th>Mesero</th><th>Turno</th><th>Recibidas</th><th>Entregadas</th><th>Pendientes</th></tr></thead><tbody>' +
+            st
+              .map(
+                (o) =>
+                  "<tr><td>" +
+                  esc(o.who) +
+                  "</td><td>" +
+                  esc(o.shiftId ? String(o.shiftId).slice(0, 8) : "Sin turno") +
+                  "</td><td>" +
+                  o.rc +
+                  " · " +
+                  money(o.ra) +
+                  "</td><td>" +
+                  o.dc +
+                  " · " +
+                  money(o.da) +
+                  '</td><td class="' +
+                  (o.pc ? "diff-bad" : "") +
+                  '">' +
+                  o.pc +
+                  " · " +
+                  money(o.pa) +
+                  "</td></tr>",
+              )
+              .join("") +
+            "</tbody></table></div>",
+        );
+      };
+      const _dailyReportLines210 = dailyReportLines;
+      dailyReportLines = function (r, W) {
+        let L = _dailyReportLines210(r, W),
+          st = deliveryStats((s) => saleDay(s) === r.day);
+        if (!st.length) return L;
+        let add = ["-".repeat(W), "Entregas a caja (recibido/entregado/pendiente)"];
+        st.forEach((o) => {
+          add.push(rcRow(o.who.slice(0, W - 14), fmt(o.ra), W));
+          add.push(rcRow("  entregado " + o.dc, fmt(o.da), W));
+          add.push(rcRow("  PENDIENTE " + o.pc, fmt(o.pa), W));
+        });
+        let i = L.findIndex((x) => /^Revisó:/.test(x));
+        if (i < 0) return L.concat(add);
+        return L.slice(0, i).concat(add, [""], L.slice(i));
+      };
+      const DELIV_COLS = ["Fecha cobro", "Hora cobro", "Mesero", "Turno", "Mesa", "Método", "Valor", "Estado", "Recibió en caja", "Fecha entrega", "Hora entrega", "Caja", "Diferencia del lote", "ID venta"],
+        DELIV_SUM_COLS = ["Fecha", "Mesero", "Turno", "Recibidas", "Valor recibido", "Entregadas", "Valor entregado", "Pendientes", "Valor pendiente"];
+      const _gatherCashExport210 = gatherCashExport;
+      gatherCashExport = async function () {
+        let r = await _gatherCashExport210();
+        try {
+          const dt = (v) => {
+            let d = new Date(v),
+              ok = v && Number.isFinite(d.getTime());
+            return [ok ? d.toLocaleDateString("es-CO") : "", ok ? d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : ""];
+          };
+          let rows = data.sales
+              .filter(saleNeedsDelivery)
+              .map((s) => {
+                let rc = receiptOf(s),
+                  a = dt(s.date),
+                  b = rc ? dt(rc.deliveredAt) : ["", ""];
+                return {
+                  "Fecha cobro": a[0],
+                  "Hora cobro": a[1],
+                  Mesero: deliveryWho(s),
+                  Turno: s.delivery.shiftId ? String(s.delivery.shiftId).slice(0, 8) : "Sin turno",
+                  Mesa: s.table != null ? "Mesa " + s.table : "Venta rápida",
+                  Método: (s.delivery.methods || []).join(" + "),
+                  Valor: Math.round(cashAmount(s.delivery.amount)),
+                  Estado: s.voided ? "Anulada" : rc ? "Entregada" : "Pendiente",
+                  "Recibió en caja": rc ? personLabel(rc.receivedBy, rc.receivedByName, rc.receiverOperator) : "",
+                  "Fecha entrega": b[0],
+                  "Hora entrega": b[1],
+                  Caja: rc && rc.cashSessionId ? String(rc.cashSessionId).slice(0, 8) : "",
+                  "Diferencia del lote": rc ? Math.round(Number(rc.batchDifference) || 0) : "",
+                  "ID venta": String(s.id),
+                };
+              }),
+            days = [...new Set(data.sales.filter(saleNeedsDelivery).map(saleDay))].filter(Boolean).sort(),
+            sums = [];
+          days.forEach((d) =>
+            deliveryStats((s) => saleDay(s) === d).forEach((o) =>
+              sums.push({
+                Fecha: d,
+                Mesero: o.who,
+                Turno: o.shiftId ? String(o.shiftId).slice(0, 8) : "Sin turno",
+                Recibidas: o.rc,
+                "Valor recibido": Math.round(o.ra),
+                Entregadas: o.dc,
+                "Valor entregado": Math.round(o.da),
+                Pendientes: o.pc,
+                "Valor pendiente": Math.round(o.pa),
+              }),
+            ),
+          );
+          r.extraSheets = (r.extraSheets || []).concat([
+            ["Entregas a caja", rows, DELIV_COLS],
+            ["Entregas por mesero", sums, DELIV_SUM_COLS],
+          ]);
+        } catch (e) {
+          console.warn("Hojas de entregas:", e);
+        }
+        return r;
+      };
+      const _buildBackupPayload210 = buildBackupPayload;
+      buildBackupPayload = async function () {
+        let p = await _buildBackupPayload210();
+        try {
+          p.extra = p.extra || {};
+          p.extra.v21 = {
+            dataGen: dataGen(),
+            receipts: [...receipts.values()],
+            generationQuarantine: (await BulletStore.getMeta("generationQuarantine")) || [],
+          };
+        } catch (e) {}
+        return p;
+      };
+      const _restoreExtras210 = BulletStore.restoreExtras;
+      BulletStore.restoreExtras = async function (x) {
+        await _restoreExtras210(x);
+        if (x && x.v21 && Array.isArray(x.v21.receipts)) {
+          x.v21.receipts.forEach((r) => {
+            if (r && r.saleId && !receipts.has(String(r.saleId))) receipts.set(String(r.saleId), { ...r, gen: dataGen() });
+          });
+          saveReceiptsLocal();
+        }
+      };
+
+      // --- Generaciones de datos: limpieza local y protección ---
+      let genDoc = null,
+        genCleaning = false;
+      function restoringNow() {
+        return !!(window.__v21Restore && Date.now() - window.__v21Restore < 180000);
+      }
+      // Ventas de una generación anterior (p. ej. traídas por el servidor antes
+      // de terminar el borrado) se retiran de la memoria y de IndexedDB.
+      function applyGenerationFilter() {
+        let gen = dataGen();
+        if (!gen || !Array.isArray(data.sales)) return;
+        let out = [],
+          restamped = [],
+          rest = restoringNow();
+        data.sales = data.sales.filter((s) => {
+          if ((Number(s.gen) || 0) >= gen) return true;
+          if (rest) {
+            s.gen = gen;
+            restamped.push(s);
+            return true;
+          }
+          out.push(s);
+          return false;
+        });
+        if (restamped.length) BulletStore.putSales(restamped).catch(() => {});
+        out.forEach((s) => BulletStore.del("sales", String(s.id)).catch(() => {}));
+      }
+      const _renderSales210 = renderSales;
+      renderSales = function () {
+        try {
+          applyGenerationFilter();
+        } catch (e) {
+          console.warn("Generación de datos:", e);
+        }
+        return _renderSales210.apply(this, arguments);
+      };
+      // Restaurar un respaldo es una decisión explícita: sus ventas se suben con
+      // la generación actual.
+      const _importBackup210 = importBackup;
+      importBackup = function (ev) {
+        window.__v21Restore = Date.now();
+        return _importBackup210(ev);
+      };
+      const _enqueueSales210 = BulletSync.enqueueSales;
+      BulletSync.enqueueSales = function (list) {
+        let g = dataGen();
+        if (g && restoringNow())
+          (list || []).forEach((s) => {
+            if (s && (Number(s.gen) || 0) < g) s.gen = g;
+          });
+        return _enqueueSales210(list);
+      };
+      async function clearStores(list) {
+        if (BulletStore.mode === "legacy") {
+          for (let st of list) {
+            let ks = await BulletStore.allKeys(st).catch(() => []);
+            for (let k of ks) await BulletStore.del(st, k).catch(() => {});
+          }
+          return;
+        }
+        await BulletStore.tx(list, "readwrite", (t) => list.forEach((st) => t.objectStore(st).clear()));
+      }
+      // Aplica una generación nueva en este equipo: limpia el historial local.
+      // Las ventas pendientes hechas DESPUÉS del reinicio (sin saberlo) se
+      // conservan y se suben con la generación nueva; las anteriores quedan en
+      // cuarentena local (no se suben) para no revivir datos borrados.
+      async function applyNewGeneration(g, self) {
+        if (genCleaning) return;
+        genCleaning = true;
+        let gen = Number(g.gen) || 0,
+          cut = Number(g.resetAtMs) || new Date(g.resetAt).getTime() || Date.now(),
+          ops = [],
+          keep = [],
+          quarantine = [];
+        try {
+          ops = await BulletStore.all("outbox");
+        } catch (e) {}
+        ops
+          .filter((o) => o.col === "sales" && o.payload)
+          .forEach((o) => {
+            let s = o.payload,
+              t = new Date(s.date).getTime();
+            if ((Number(s.gen) || 0) >= gen) keep.push(s);
+            else if (!self && Number.isFinite(t) && t >= cut && !s.archived) keep.push({ ...s, gen });
+            else quarantine.push(s);
+          });
+        for (let o of ops) if (["sales", "cashSessions", "cashMovements", "shifts", "cashReceipts"].includes(o.col)) await BulletStore.del("outbox", o.opId).catch(() => {});
+        try {
+          await clearStores(["sales", "cashSessions", "cashMovements", "syncState", "audit"]);
+        } catch (e) {
+          console.error("Limpieza local:", e);
+        }
+        if (quarantine.length) {
+          let q = (await BulletStore.getMeta("generationQuarantine").catch(() => null)) || [];
+          q = (Array.isArray(q) ? q : []).concat([{ gen, at: new Date().toISOString(), sales: quarantine }]).slice(-20);
+          await BulletStore.putMeta("generationQuarantine", q).catch(() => {});
+        }
+        ["bullet_pos_cash_session", "bullet_pos_cash_moves", SHIFT_KEY].forEach((k) => {
+          try {
+            localStorage.removeItem(k);
+          } catch (e) {}
+        });
+        await Promise.all([
+          BulletStore.putMeta("currentCashSession", null),
+          BulletStore.putMeta("partialCounts", {}),
+          BulletStore.putMeta("shiftHistory", []),
+          BulletStore.putMeta("currentShift", null),
+          BulletStore.putMeta("cashReceipts", {}),
+        ]).catch(() => {});
+        data.sales = keep;
+        data.tables = {};
+        if (data.settings) {
+          delete data.settings.archives;
+          delete data.settings.historyResets;
+          delete data.settings.historyEpoch;
+        }
+        cashSession = null;
+        cashMovements = [];
+        cashHistory = [];
+        curShift = null;
+        shiftHistoryCache = [];
+        partialLocal = {};
+        receipts = new Map();
+        shiftsList = [];
+        lastClosedForPrint = null;
+        lastShiftForPrint = null;
+        setActiveTable(null);
+        normalizeLocalData();
+        persist();
+        try {
+          await BulletStore.flushNow();
+        } catch (e) {}
+        setDataGen(gen);
+        if (keep.length) {
+          await BulletStore.putSales(keep).catch(() => {});
+          await BulletSync.enqueueSales(keep).catch(() => {});
+        }
+        await BulletSync.refreshStats();
+        BulletAudit.record(self ? "databaseReset" : "generationApplied", {
+          gen,
+          kept: keep.length,
+          discarded: quarantine.length,
+          note: g.note || "",
+        });
+        try {
+          localStorage.setItem(GEN_NOTICE_KEY, JSON.stringify({ gen, self: !!self, kept: keep.length, discarded: quarantine.length }));
+        } catch (e) {}
+        setTimeout(() => location.reload(), 700);
+      }
+      async function onGenerationSnap(snap) {
+        if (!snap.exists) return;
+        genDoc = snap.data();
+        if (window.__v21Resetting) return;
+        if ((Number(genDoc.gen) || 0) > dataGen()) await applyNewGeneration(genDoc, false);
+        else renderResetCard();
+      }
+      BulletStore.ready.then(() => {
+        let n = null;
+        try {
+          n = JSON.parse(localStorage.getItem(GEN_NOTICE_KEY) || "null");
+          localStorage.removeItem(GEN_NOTICE_KEY);
+        } catch (e) {}
+        if (n)
+          setTimeout(
+            () =>
+              alert(
+                n.self
+                  ? "Reinicio completado: empieza la generación de datos " + n.gen + ".\nAbre la caja con la base inicial para empezar a operar."
+                  : "Se detectó un reinicio global. Los datos pendientes del periodo anterior fueron limpiados correctamente.\n\n(Nueva generación de datos: " +
+                      n.gen +
+                      ".)" +
+                      (n.kept ? "\n" + n.kept + " venta(s) registradas después del reinicio se conservan y se enviarán." : "") +
+                      (n.discarded ? "\n" + n.discarded + " venta(s) anteriores al reinicio quedaron guardadas aparte y no se enviarán." : ""),
+              ),
+            400,
+          );
+      });
+      const _startV2Listeners210 = startV2Listeners;
+      startV2Listeners = function () {
+        _startV2Listeners210();
+        v2Listen("generation", () => genRef(), onGenerationSnap);
+        if (deviceIsMain()) v2Listen("receipts", () => cloudRoot().collection("cashReceipts"), onReceiptsSnap);
+        else if (syncUser) v2Listen("receipts", () => cloudRoot().collection("cashReceipts").where("collectedBy", "==", syncUser.uid), onReceiptsSnap);
+      };
+
+      // --- Reinicio real (PC Main) ---
+      function versionLess(a, b) {
+        let x = String(a || "0").split(".").map(Number),
+          y = String(b).split(".").map(Number);
+        for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+        return false;
+      }
+      resetBlockers = function () {
+        let out = [];
+        const B = (code, msg) => out.push({ code, msg });
+        if (!deviceIsMain()) B("main", "Solo un PC Main puede reiniciar los datos.");
+        if (firebaseConfigured() && (!syncReady || !deviceApproved || navigator.onLine === false))
+          B("sync", "Error de sincronización: este equipo no está conectado con Firebase. Conéctate a internet para que el reinicio llegue a todos los dispositivos.");
+        let tables = Object.values(data.tables || {}).filter((t) => t && t.open);
+        if (tables.length) B("tables", "Mesas abiertas: " + tables.map((t) => "Mesa " + t.n).join(", ") + ". Cóbralas o anúlalas antes del reinicio.");
+        if (cashSession && cashSession.status === "open") {
+          let n = sessionSales().length,
+            m = cashMovements.filter((x) => x.sessionId === cashSession.id).length;
+          if (n || m) B("cash", "Caja abierta con " + n + " venta(s) y " + m + " movimiento(s). Ciérrala primero (Caja > Cerrar caja).");
+        }
+        let st = BulletSync.stats(),
+          pend = (st.pendingOps || 0) + (st.syncingOps || 0) + (st.errorOps || 0);
+        if (pend) B("pending", "Operaciones pendientes: este equipo tiene " + pend + " operación(es) sin confirmar por Firebase. Sincroniza primero (indicador de sincronización).");
+        let open = shiftsList.filter((s) => s.status === "open");
+        if (open.length) B("shifts", "Turnos abiertos: " + open.map((s) => s.operator || "sin nombre").join(", ") + ". Ciérralos en Caja > Turnos de meseros.");
+        if (licenseState().state === "origin") B("license", "Esta copia no está autorizada por la licencia.");
+        return out;
+      };
+      resetWarnings = function () {
+        let out = [];
+        try {
+          BulletSupervision.rows()
+            .filter((r) => !r.mine && r.state !== "connected")
+            .forEach((r) => out.push(r.name + ": " + r.label + ". Lo que tenga sin enviar de antes del reinicio no se subirá."));
+        } catch (e) {}
+        v2Status.forEach((s, id) => {
+          if (s && s.appVersion && versionLess(s.appVersion, "2.1.0"))
+            out.push(
+              (s.name || v2DeviceName(id)) + " usa la versión " + s.appVersion + ": actualízalo; hasta entonces Firebase rechazará sus ventas nuevas.",
+            );
+        });
+        let pd = pendingDeliveries();
+        if (pd.length) out.push(pd.length + " cobro(s) pendiente(s) de entrega también se eliminarán.");
+        return out;
+      };
+      async function resetSummary() {
+        let archived = 0,
+          moves = [];
+        try {
+          archived = (await BulletStore.all("sales")).filter((s) => s.archived).length;
+        } catch (e) {}
+        try {
+          moves = await allCashMovements();
+        } catch (e) {}
+        return [
+          ["Ventas (activas y archivadas)", data.sales.length + archived],
+          ["Cajas (abiertas y cerradas)", allCashSessions().length],
+          ["Movimientos de caja", moves.length],
+          ["Turnos", Math.max(shiftsList.length, shiftHistoryCache.length)],
+          ["Entregas a caja", receipts.size],
+          ["Mesas guardadas", Object.keys(data.tables || {}).length],
+        ];
+      }
+      function showResetError(msg) {
+        let el = gid("resetError");
+        if (el) {
+          el.style.display = msg ? "block" : "none";
+          el.textContent = msg ? "✖ " + msg : "";
+        }
+        if (msg) toast(msg);
+      }
+      function resetProgress(msg) {
+        let el = gid("resetProgress");
+        if (el) el.textContent = msg || "";
+      }
+      openHistoryReset = async function () {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede reiniciar los datos");
+          return;
+        }
+        let bl = resetBlockers(),
+          wr = resetWarnings(),
+          sum = await resetSummary(),
+          incomplete = genDoc && genDoc.cleaned === false;
+        gid("resetInfo").innerHTML =
+          '<div class="sub"><strong>Se eliminará</strong> (en Firebase y en todos los dispositivos):</div><div class="cash-breakdown">' +
+          sum.map((r) => '<div class="line"><span>' + esc(r[0]) + "</span><strong>" + esc(r[1]) + "</strong></div>").join("") +
+          '<div class="line muted"><span>También</span><strong>estados temporales, sincronizaciones pendientes y auditoría local</strong></div></div>' +
+          '<div class="sub" style="margin-top:8px"><strong>Se conserva:</strong> productos, categorías, licencia, roles, PC Main, dispositivos, seguridad, configuración, medios de pago, configuración de caja y de mesas, y la auditoría en Firebase.</div>' +
+          (cashSession && cashSession.status === "open" && !bl.some((b) => b.code === "cash")
+            ? '<div class="sub" style="margin-top:6px">La caja abierta sin ventas también se elimina: después del reinicio abre una nueva con la base inicial.</div>'
+            : "") +
+          (incomplete ? '<div class="warnnote" style="margin-top:10px">⚠ El último reinicio dejó la limpieza incompleta. Pulsa «Reintentar limpieza».</div>' : "") +
+          (bl.length ? '<div class="warnnote" style="margin-top:10px"><strong>No se puede reiniciar todavía:</strong><br>• ' + bl.map((b) => esc(b.msg)).join("<br>• ") + "</div>" : "") +
+          (wr.length ? '<div class="warnnote" style="margin-top:10px">Advertencias:<br>• ' + wr.map(esc).join("<br>• ") + "</div>" : "");
+        ["resetConfirmText", "resetNote", "resetPass"].forEach((id) => (gid(id).value = ""));
+        showResetError("");
+        resetProgress("");
+        gid("resetConfirmBtn").disabled = !!bl.length;
+        gid("resetRetryBtn").style.display = incomplete && deviceIsMain() ? "" : "none";
+        gid("resetModal").classList.add("show");
+      };
+      async function runGenerationCleanup(g) {
+        let total = 0,
+          done = 0;
+        try {
+          for (let col of GEN_COLLECTIONS) {
+            resetProgress("Eliminando " + GEN_LABELS[col] + "…");
+            let snap = await withTimeout(cloudRoot().collection(col).get(), 30000),
+              docs = snap.docs.filter((d) => col === "mesas" || col === "deviceStatus" || (Number((d.data() || {}).gen) || 0) < g.gen);
+            total += docs.length;
+            for (let i = 0; i < docs.length; i += 400) {
+              let b = syncDb.batch();
+              docs.slice(i, i + 400).forEach((d) => b.delete(d.ref));
+              await withTimeout(b.commit(), 30000);
+              done += Math.min(400, docs.length - i);
+              resetProgress("Eliminando " + GEN_LABELS[col] + "… (" + done + " registros)");
+            }
+          }
+          await withTimeout(genRef().set({ cleaned: true, cleanedAt: Date.now(), deleted: done }, { merge: true }), 15000);
+          if (genDoc && genDoc.gen === g.gen) genDoc.cleaned = true;
+          resetProgress("Limpieza completada: " + done + " registros eliminados en Firebase.");
+          return true;
+        } catch (e) {
+          showResetError(
+            "Error de sincronización: la limpieza en Firebase quedó incompleta (" +
+              done +
+              " de " +
+              total +
+              " registros). Revisa la conexión y pulsa «Reintentar limpieza». Detalle: " +
+              ((e && (e.code || e.message)) || e),
+          );
+          gid("resetRetryBtn").style.display = "";
+          return false;
+        }
+      }
+      confirmHistoryReset = async function () {
+        showResetError("");
+        let bl = resetBlockers();
+        if (bl.length) return showResetError(bl[0].msg);
+        let pass = gid("resetPass").value;
+        if (!pass) return showResetError("Contraseña incorrecta: escribe la contraseña administrativa del PC Main.");
+        if (!(await verifyAdminPassword(pass))) return showResetError("Contraseña incorrecta.");
+        if (gid("resetConfirmText").value.trim() !== "REINICIAR")
+          return showResetError("Texto incorrecto: escribe exactamente REINICIAR (en mayúsculas) para confirmar.");
+        let btn = gid("resetConfirmBtn"),
+          note = gid("resetNote").value.trim().slice(0, 160);
+        btn.disabled = true;
+        try {
+          resetProgress("Descargando respaldo JSON…");
+          await exportBackup("ANTES-DE-REINICIO_");
+          await new Promise((r) => setTimeout(r, 900));
+          resetProgress("Descargando Excel completo…");
+          await exportExcel();
+        } catch (e) {
+          btn.disabled = false;
+          return showResetError("No se pudieron generar las copias previas. No se borró nada. Detalle: " + ((e && e.message) || e));
+        }
+        let counts = {};
+        (await resetSummary()).forEach((r) => (counts[r[0]] = r[1]));
+        if (!firebaseConfigured()) {
+          resetProgress("Limpiando este equipo…");
+          await applyNewGeneration({ gen: dataGen() + 1, resetAt: new Date().toISOString(), resetAtMs: Date.now(), note }, true);
+          return;
+        }
+        window.__v21Resetting = true;
+        let g;
+        try {
+          resetProgress("Creando la nueva generación de datos…");
+          g = await withTimeout(
+            syncDb.runTransaction(async (tx) => {
+              let s = await tx.get(genRef()),
+                cur = s.exists ? Number(s.data().gen) || 0 : 0;
+              if (cur !== dataGen()) throw new Error("Otro PC Main ya reinició los datos (generación " + cur + "). Recarga la app.");
+              let doc = {
+                gen: cur + 1,
+                id: makeId(),
+                resetAt: new Date().toISOString(),
+                resetAtMs: Date.now(),
+                by: syncUser.uid,
+                byName: BulletSupervision.myName(),
+                operator: operatorName() || null,
+                note,
+                counts,
+                cleaned: false,
+                appVersion: APP_VERSION,
+              };
+              tx.set(genRef(), doc);
+              tx.set(cashMetaRef(), { currentSessionId: null, updatedAt: Date.now(), gen: cur + 1 });
+              return doc;
+            }),
+            20000,
+          );
+        } catch (e) {
+          window.__v21Resetting = false;
+          btn.disabled = false;
+          return showResetError("Error de sincronización: no se pudo iniciar el reinicio. No se borró nada. Detalle: " + ((e && (e.code || e.message)) || e));
+        }
+        genDoc = g;
+        let ok = await runGenerationCleanup(g);
+        window.__v21Resetting = false;
+        if (!ok) return;
+        resetProgress("Limpiando este equipo…");
+        await applyNewGeneration(g, true);
+      };
+      async function retryGenerationCleanup() {
+        if (!genDoc || genDoc.cleaned !== false) {
+          toast("No hay una limpieza pendiente");
+          return;
+        }
+        if (!deviceIsMain() || !syncReady || navigator.onLine === false) return showResetError("Error de sincronización: conéctate a internet desde un PC Main.");
+        showResetError("");
+        window.__v21Resetting = true;
+        let ok = await runGenerationCleanup(genDoc);
+        window.__v21Resetting = false;
+        if (!ok) return;
+        gid("resetRetryBtn").style.display = "none";
+        if (dataGen() < genDoc.gen) await applyNewGeneration(genDoc, true);
+        else toast("Limpieza completada");
+        renderResetCard();
+      }
+      renderResetCard = function () {
+        let el = gid("resetBox");
+        if (!el) return;
+        let g = genDoc,
+          cur = dataGen();
+        el.innerHTML =
+          (cur
+            ? "Generación de datos <strong>" +
+              cur +
+              "</strong>" +
+              (g && Number(g.gen) === cur
+                ? " · reinicio del " + esc(fmtDT(g.resetAt)) + " por " + esc(personLabel(g.by, g.byName, g.operator)) + (g.note ? " · " + esc(g.note) : "")
+                : "")
+            : "Generación de datos 0: todavía no se ha hecho un reinicio real.") +
+          (g && g.cleaned === false && deviceIsMain()
+            ? '<div class="warnnote" style="margin-top:8px">⚠ La limpieza del último reinicio quedó incompleta. <button class="btn small" onclick="openHistoryReset()">Revisar / reintentar</button></div>'
+            : "");
+      };
+
+      // --- Auditoría ---
+      Object.assign(AUDIT_LABEL, {
+        paymentReceived: "Pago recibido (pendiente de entrega a caja)",
+        deliveryConfirmed: "Entrega a caja confirmada",
+        deliveryDifference: "Modificación administrativa: diferencia en entrega a caja",
+        deliveriesReconciled: "Cobros conciliados en el cierre de caja",
+        cashClosedWithPendingDeliveries: "Cierre de caja con cobros pendientes de entrega",
+        shiftClosedWithPending: "Turno cerrado con cobros pendientes",
+        databaseReset: "Reinicio real de datos (nueva generación)",
+        generationApplied: "Nueva generación de datos aplicada en el equipo",
+      });
+      const _auditSummary210 = auditSummary;
+      auditSummary = function (d) {
+        d = d || {};
+        let base = _auditSummary210(d),
+          extra = [];
+        if (d.deliveryAmount != null) extra.push("valor " + money(d.deliveryAmount));
+        if (Array.isArray(d.methods)) extra.push(d.methods.join(" + "));
+        if (d.gen != null) extra.push("generación " + d.gen);
+        if (d.kept != null) extra.push(d.kept + " conservada(s)");
+        if (d.discarded != null) extra.push(d.discarded + " descartada(s)");
+        return [base].concat(extra).filter(Boolean).join(" · ");
+      };
+      if (deviceIsMain()) renderDeliveryCard();
+
+      // --- 2.1.0: sin reintentos infinitos tras un reinicio global ---
+      // Durante la sincronización cada equipo compara su generación con la del
+      // servidor. Las operaciones de una generación anterior se retiran de la
+      // cola (quedan en cuarentena local, nunca se reintentan).
+      const GEN_DATA_COLS = ["sales", "cashSessions", "cashMovements", "shifts", "cashReceipts"];
+      function staleOp(o, g) {
+        if (!o || !GEN_DATA_COLS.includes(o.col) || o.type === "arrayUnion") return false;
+        return (Number(o.payload && o.payload.gen) || 0) < g;
+      }
+      async function quarantineOps(list, reason) {
+        if (!list.length) return;
+        let q = (await BulletStore.getMeta("generationQuarantine").catch(() => null)) || [];
+        q = (Array.isArray(q) ? q : []).concat([{ gen: dataGen(), at: new Date().toISOString(), reason, ops: list.map((o) => ({ col: o.col, docId: o.docId, payload: o.payload, lastError: o.lastError || "" })) }]).slice(-20);
+        await BulletStore.putMeta("generationQuarantine", q).catch(() => {});
+      }
+      let purging = false;
+      async function purgeStaleOps() {
+        let g = dataGen();
+        if (!g || purging || !BulletStore.loaded) return 0;
+        purging = true;
+        try {
+          let ops = (await BulletStore.all("outbox")).filter((o) => staleOp(o, g));
+          if (!ops.length) return 0;
+          await quarantineOps(ops, "generación anterior");
+          for (let o of ops) {
+            await BulletStore.del("outbox", o.opId).catch(() => {});
+            if (o.col === "sales") await BulletStore.del("syncState", String(o.docId)).catch(() => {});
+          }
+          await BulletSync.refreshStats();
+          return ops.length;
+        } finally {
+          purging = false;
+        }
+      }
+      let lastGenCheck = 0;
+      async function checkServerGeneration(force) {
+        if (!firebaseConfigured() || !syncReady || !deviceApproved || !syncDb || navigator.onLine === false || window.__v21Resetting || window.__v2Drain) return false;
+        if (!force && Date.now() - lastGenCheck < 60000) return false;
+        lastGenCheck = Date.now();
+        try {
+          let s = await withTimeout(genRef().get({ source: "server" }), 10000);
+          if (s.exists) {
+            genDoc = s.data();
+            if ((Number(genDoc.gen) || 0) > dataGen()) {
+              await applyNewGeneration(genDoc, false);
+              return true;
+            }
+          }
+        } catch (e) {}
+        return false;
+      }
+      ["run", "kick"].forEach((k) => {
+        let orig = BulletSync[k];
+        BulletSync[k] = function (reason) {
+          if (genCleaning) return Promise.resolve();
+          return Promise.resolve()
+            .then(() => checkServerGeneration(false))
+            .then((changed) => (changed ? null : purgeStaleOps()))
+            .then(() => (genCleaning ? null : orig(reason)))
+            .catch((e) => console.warn("Sincronización:", e));
+        };
+      });
+      setInterval(() => {
+        if (document.visibilityState !== "hidden") purgeStaleOps().catch(() => {});
+      }, 30000);
+
+      // --- Reparar sincronización (solo PC Main) ---
+      async function repairSync() {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede reparar la sincronización");
+          return;
+        }
+        if (
+          !confirm(
+            "Reparar sincronización\n\n• Se comprueba la generación de datos del servidor.\n• Se vacía la cola de este equipo y se recalcula el estado de cada venta.\n• Las operaciones de periodos anteriores y los errores permanentes se retiran (quedan guardados aparte).\n• Los datos válidos se vuelven a enviar.\n\n¿Continuar?",
+          )
+        )
+          return;
+        if (!(await requireMainPassword("reparar la sincronización"))) return;
+        if (await checkServerGeneration(true)) return;
+        let online = firebaseConfigured() && syncReady && deviceApproved && navigator.onLine !== false,
+          g = dataGen(),
+          ops = await BulletStore.all("outbox"),
+          stale = [],
+          perm = [],
+          valid = [];
+        ops.forEach((o) => {
+          if (staleOp(o, g)) stale.push(o);
+          else if (o.state === "error" && /permiso denegado|permission/i.test(o.lastError || "") && (o.attempts || 0) >= 3) perm.push(o);
+          else valid.push(o);
+        });
+        await quarantineOps(stale, "reparación: generación anterior");
+        await quarantineOps(perm, "reparación: error permanente");
+        await clearStores(["outbox", "syncState"]);
+        let sales = new Map();
+        for (let o of valid) {
+          if (o.col === "sales" && o.payload) sales.set(String(o.docId), o.payload);
+          else if (o.type === "arrayUnion") await BulletSync.enqueueArrayUnion(o.col, o.docId, o.field, o.payload);
+          else await BulletSync.enqueueDoc(o.col, o.docId, o.payload, { kind: o.kind, merge: o.merge });
+        }
+        // Ventas válidas que el servidor aún no tiene: se vuelven a enviar.
+        if (online)
+          data.sales
+            .filter((s) => (Number(s.gen) || 0) >= g && !serverSaleIds.has(String(s.id)))
+            .forEach((s) => sales.has(String(s.id)) || sales.set(String(s.id), s));
+        let now = Date.now(),
+          synced = data.sales.filter((s) => serverSaleIds.has(String(s.id)) && !sales.has(String(s.id)));
+        if (synced.length)
+          await BulletStore.putMany(
+            "syncState",
+            synced.map((s) => ({ id: String(s.id), state: "synced", confirmedAt: now, createdAt: now, updatedAt: now })),
+          );
+        if (sales.size) await BulletSync.enqueueSales([...sales.values()]);
+        await BulletSync.refreshStats();
+        BulletAudit.record("syncRepaired", {
+          gen: g,
+          discarded: stale.length,
+          permanent: perm.length,
+          requeued: valid.length,
+          salesRequeued: sales.size,
+          deviceId: currentDeviceId(),
+        });
+        BulletSync.run("manual");
+        alert(
+          "Sincronización reparada.\n\n" +
+            stale.length +
+            " operación(es) de periodos anteriores retiradas.\n" +
+            perm.length +
+            " operación(es) con error permanente retiradas (guardadas aparte).\n" +
+            sales.size +
+            " venta(s) y " +
+            (valid.length - valid.filter((o) => o.col === "sales").length) +
+            " otra(s) operación(es) válidas se vuelven a enviar.",
+        );
+        if (gid("syncModal") && gid("syncModal").classList.contains("show")) renderSyncPanel();
+      }
+      Object.assign(AUDIT_LABEL, { syncRepaired: "Reparación de sincronización" });
+      const _auditSummary210b = auditSummary;
+      auditSummary = function (d) {
+        d = d || {};
+        let base = _auditSummary210b(d),
+          extra = [];
+        if (d.permanent != null) extra.push(d.permanent + " con error permanente");
+        if (d.salesRequeued != null) extra.push(d.salesRequeued + " venta(s) reenviadas");
+        return [base].concat(extra).filter(Boolean).join(" · ");
+      };
+      const _renderSyncPanel210 = renderSyncPanel;
+      renderSyncPanel = function () {
+        _renderSyncPanel210();
+        let el = gid("syncPanelBody");
+        if (el && deviceIsMain())
+          el.insertAdjacentHTML(
+            "beforeend",
+            '<div class="set-card"><h3>Reparar sincronización</h3><div class="sub">Vacía la cola de este equipo, retira operaciones de periodos anteriores y errores permanentes, recalcula el estado de las ventas y vuelve a enviar los datos válidos. Queda en la auditoría.</div><button class="btn" style="margin-top:8px" onclick="repairSync()">Reparar sincronización</button></div>',
+          );
+      };
+      const _renderRoleUI210 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI210();
+        let b = gid("repairSyncBtn");
+        if (b) b.style.display = deviceIsMain() ? "" : "none";
+      };
 
       renderArchiveLog();
 
