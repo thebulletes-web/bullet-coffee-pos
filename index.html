@@ -919,6 +919,55 @@
         color: var(--muted);
         margin-top: 4px;
       }
+      /* 1.9.0: caja (apertura, cuadre, historial) */
+      .cash-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: #fdf3e8;
+        color: #8a4b20;
+        font-weight: 650;
+      }
+      .cash-breakdown .line {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
+        border-bottom: 1px dashed var(--line);
+        font-size: 14px;
+      }
+      .cash-breakdown .line.total {
+        font-weight: 800;
+        color: var(--green);
+        border-bottom: 0;
+        border-top: 1px solid var(--line);
+        margin-top: 4px;
+      }
+      .cash-breakdown .line.muted {
+        color: var(--muted);
+      }
+      .diff-ok {
+        color: var(--green);
+        font-weight: 800;
+      }
+      .diff-bad {
+        color: var(--red);
+        font-weight: 800;
+      }
+      .cash-table {
+        min-width: 1150px;
+      }
+      .cash-table td,
+      .cash-table th {
+        padding: 8px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
       /* 1.8.0: historial por dispositivo y filtros */
       .operator-row {
         display: flex;
@@ -1204,6 +1253,7 @@
               </button>
             </div>
           </div>
+          <div id="ventaCashBanner" class="cash-banner" style="display: none"></div>
           <input
             id="search"
             class="search"
@@ -1351,6 +1401,7 @@
             </div>
             <span class="pill wait" id="cashStatus">Consultando caja…</span>
           </div>
+          <div id="cashBanner" class="cash-banner" style="display: none"></div>
           <div class="cash-grid">
             <div class="cash-metric">
               <span>Base inicial</span><strong id="cashOpening">$0</strong>
@@ -1367,6 +1418,40 @@
               <span>Pagos no efectivos</span
               ><strong id="cashNonCash">$0</strong>
             </div>
+          </div>
+          <div class="set-card">
+            <h3>Cobrado por medio de pago</h3>
+            <div class="sub">
+              Ventas válidas de la caja abierta (incluye la propina cobrada por
+              cada medio).
+            </div>
+            <div id="cashMethods" class="cash-grid"></div>
+          </div>
+          <div class="set-card">
+            <h3>Cuadre en vivo</h3>
+            <div id="cashLive" class="cash-breakdown"></div>
+          </div>
+          <div class="set-card" id="cashConfigCard">
+            <h3>Configuración de caja</h3>
+            <label class="tip-check"
+              ><input
+                type="radio"
+                name="tipsMode"
+                value="include"
+                onchange="setCashTipsMode(this.value)"
+              /><span>Incluir propinas en el efectivo esperado</span></label
+            >
+            <label class="tip-check" style="margin-top: 6px"
+              ><input
+                type="radio"
+                name="tipsMode"
+                value="exclude"
+                onchange="setCashTipsMode(this.value)"
+              /><span
+                >Excluir propinas del efectivo esperado (se entregan aparte)</span
+              ></label
+            >
+            <p class="notice" id="cashConfigInfo"></p>
           </div>
           <div class="set-card">
             <h3>Movimientos de caja</h3>
@@ -1428,7 +1513,11 @@
             </p>
           </div>
           <div class="set-card">
-            <h3>Historial de cierres</h3>
+            <h3>Historial de cajas</h3>
+            <div id="cashSessionsTable" class="notice"></div>
+          </div>
+          <div class="set-card">
+            <h3>Ajustes posteriores y ventas tardías</h3>
             <div id="cashHistory" class="notice">
               Los cierres aparecerán aquí.
             </div>
@@ -1564,6 +1653,13 @@
               permiten, el equipo nuevo aparecerá solo en la lista como
               Pendiente.
             </p>
+          </div>
+          <div class="set-card">
+            <h3>Soporte</h3>
+            <div class="sub" id="supportInfo"></div>
+            <button class="btn" style="margin-top: 8px" onclick="contactSupport()">
+              Escribir a soporte
+            </button>
           </div>
           <div class="set-card" id="businessCard">
             <h3>Datos del negocio en el comprobante</h3>
@@ -1864,6 +1960,111 @@
       </div>
     </div>
     <div id="printReceipt" style="display: none"></div>
+    <div class="modal-back" id="cashOpenModal">
+      <div class="modal">
+        <h2>Abrir caja</h2>
+        <p class="sub">
+          La base inicial es el efectivo con el que empieza la jornada. No es una
+          venta.
+        </p>
+        <label class="lbl" for="openBase">Base inicial (COP)</label
+        ><input
+          id="openBase"
+          class="field"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          step="1000"
+          placeholder="Ej. 100000"
+        /><label class="lbl" for="openNote">Observación (opcional)</label
+        ><input
+          id="openNote"
+          class="field"
+          maxlength="120"
+          placeholder="Ej. Cambio inicial"
+        />
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('cashOpenModal')">
+            Cancelar</button
+          ><button class="btn primary" id="openCashConfirm" onclick="confirmOpenCash()">
+            Abrir caja
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="cashCloseModal">
+      <div class="modal modal-wide">
+        <h2>Cerrar caja</h2>
+        <div id="closeWarnings"></div>
+        <div id="closeBreakdown" class="cash-breakdown"></div>
+        <label class="lbl" for="closeCounted">Efectivo contado (COP)</label
+        ><input
+          id="closeCounted"
+          class="field"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          step="50"
+          oninput="renderCloseDifference()"
+        />
+        <div id="closeDiff" class="change-line muted"></div>
+        <div class="split-row">
+          <div>
+            <label class="lbl" for="closeCard">Total del datáfono (opcional)</label
+            ><input
+              id="closeCard"
+              class="field"
+              type="number"
+              inputmode="numeric"
+              min="0"
+              oninput="renderCloseDifference()"
+            />
+          </div>
+          <div>
+            <label class="lbl" for="closeTransfers"
+              >Transferencias verificadas (Nequi, Daviplata, Transferencia) —
+              opcional</label
+            ><input
+              id="closeTransfers"
+              class="field"
+              type="number"
+              inputmode="numeric"
+              min="0"
+              oninput="renderCloseDifference()"
+            />
+          </div>
+        </div>
+        <div id="closeOtherDiff" class="notice"></div>
+        <label class="lbl" for="closeNotes">Observaciones del cierre</label
+        ><input id="closeNotes" class="field" maxlength="200" />
+        <div class="split-row">
+          <div>
+            <label class="lbl" for="closeNextBase"
+              >Base de la nueva caja (se abre automáticamente)</label
+            ><input
+              id="closeNextBase"
+              class="field"
+              type="number"
+              inputmode="numeric"
+              min="0"
+              step="1000"
+            />
+          </div>
+          <div>
+            <label class="lbl" for="closeNextNote"
+              >Observación de la nueva caja (opcional)</label
+            ><input id="closeNextNote" class="field" maxlength="120" />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeCashModal('cashCloseModal')">
+            Cancelar</button
+          ><button class="btn danger" id="closeCashConfirm" onclick="confirmCloseCash()">
+            Confirmar cierre
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="modal-back" id="auditModal">
       <div class="modal modal-wide">
         <h2>Registro de auditoría</h2>
@@ -2045,7 +2246,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "1.8.1",
+        APP_VERSION = "1.9.0",
         APP_BUILD = "2026-11-20";
       let received = "",
         rcSale = null,
@@ -2675,6 +2876,20 @@
             }),
             "Ventas por dispositivo",
           );
+          // 1.9.0: datos de caja preparados antes de exportar.
+          let cx = window.__cashExport;
+          if (cx) {
+            XLSX.utils.book_append_sheet(
+              wb,
+              XLSX.utils.json_to_sheet(cx.sessions, { header: CASH_SHEET_COLS }),
+              "Cajas",
+            );
+            XLSX.utils.book_append_sheet(
+              wb,
+              XLSX.utils.json_to_sheet(cx.movements, { header: MOVES_SHEET_COLS }),
+              "Movimientos de Caja",
+            );
+          }
           XLSX.writeFile(wb, "bullet-pos_" + stamp() + ".xlsx");
         } else {
           let csv =
@@ -3375,7 +3590,7 @@
       }
       // PDF sin librerías externas (funciona offline): ticket de 80 mm en Courier.
       function pdfBytes(s) {
-        let lines = receiptLines(s),
+        let lines = receiptLines(s).concat(pdfFooterLines()),
           W = 226.77,
           M = 14,
           LH = 11,
@@ -5157,6 +5372,13 @@
             .filter((m) => m.sessionId === cashSession?.id && m.type === "out")
             .reduce((a, m) => a + cashAmount(m.amount), 0),
           opening = cashAmount(cashSession?.openingAmount);
+        // 1.9.0: totales por medio de pago y propinas. La propina cobrada en
+        // efectivo se calcula en proporción a la parte en efectivo de la venta.
+        let byMethod = cashMethodTotals(sales),
+          tips = sales.reduce((a, s) => a + saleTip(s), 0),
+          cashTips = sales.reduce((a, s) => a + saleCashTip(s), 0),
+          tipsIn = cashConfig().tipsInExpected !== false,
+          salesNoTips = sales.reduce((a, s) => a + saleSub(s), 0);
         return {
           sales,
           cash,
@@ -5164,25 +5386,50 @@
           ins,
           outs,
           opening,
-          expected: opening + cash + ins - outs,
+          byMethod,
+          tips,
+          cashTips,
+          tipsIn,
+          salesNoTips,
+          cashSalesNoTips: cash - cashTips,
+          expected: opening + cash - (tipsIn ? 0 : cashTips) + ins - outs,
           total: sales.reduce((a, s) => a + cashAmount(s.total), 0),
         };
       }
+      // 1.9.0: la apertura usa una ventana con base inicial y observación.
       async function openCashSession() {
         if (!(await requireMainPassword("abrir la caja"))) return;
-        let base = prompt("Base inicial de efectivo (COP):", "0");
-        if (base === null) return;
-        base = Number(base);
-        if (!Number.isFinite(base) || base < 0) {
-          toast("Base inicial no válida");
+        if (cashSession && cashSession.status === "open") {
+          toast("Ya hay una caja abierta");
           return;
         }
+        gid("openBase").value = "";
+        gid("openNote").value = "";
+        gid("openCashConfirm").disabled = false;
+        gid("cashOpenModal").classList.add("show");
+        focusFirstIn("cashOpenModal", "openBase");
+      }
+      function closeCashModal(id) {
+        gid(id).classList.remove("show");
+      }
+      async function confirmOpenCash() {
+        let raw = gid("openBase").value,
+          base = Number(raw),
+          note = gid("openNote").value.trim();
+        if (raw === "" || !Number.isFinite(base) || base < 0) {
+          toast("Escribe la base inicial (puede ser 0)");
+          return;
+        }
+        gid("openCashConfirm").disabled = true;
         let session = {
           id: makeId(),
           status: "open",
           openedAt: new Date().toISOString(),
           openedBy: syncUser?.uid || "local",
+          openedByName: BulletSupervision.myName(),
+          openedByOperator: operatorName() || null,
           openingAmount: base,
+          openingNote: note,
           day: cashDay(),
           createdAt: Date.now(),
         };
@@ -5206,16 +5453,24 @@
               });
             });
           } catch (e) {
+            gid("openCashConfirm").disabled = false;
             toast(e.message || "No se pudo abrir la caja compartida");
             return;
           }
         } else {
           toast("Sin Firebase: la caja se abrirá solo en este dispositivo");
         }
+        closeCashModal("cashOpenModal");
         saveCashLocal(session);
         cashMovements = [];
+        BulletAudit.record("cashOpened", {
+          sessionId: session.id,
+          openingAmount: base,
+          note,
+          auto: false,
+        });
         renderCashDashboard();
-        toast("Caja abierta");
+        toast("Caja abierta con base " + money(base));
       }
       async function closeCashSession() {
         if (!(await requireMainPassword("cerrar la caja"))) return;
@@ -5248,28 +5503,137 @@
             return;
           }
         }
+        // 1.9.0: el resto del cierre se completa en la ventana de cierre.
+        pendingClose = { check };
+        let warn = gid("closeWarnings");
+        warn.innerHTML =
+          check.issues.length || check.localPending > 0
+            ? '<div class="warnnote">⚠ Se cerrará con advertencias (quedará registrado): ' +
+              esc(
+                (check.localPending > 0 ? check.localPending + " operación(es) locales sin confirmar. " : "") +
+                  check.issues.map((x) => x.text).join(" · "),
+              ) +
+              "</div>"
+            : "";
+        ["closeCounted", "closeCard", "closeTransfers", "closeNotes", "closeNextBase", "closeNextNote"].forEach(
+          (id) => (gid(id).value = ""),
+        );
+        gid("closeNextBase").value = String(Math.round(cashAmount(cashSession.openingAmount)));
+        gid("closeCashConfirm").disabled = false;
+        renderCloseDifference();
+        gid("cashCloseModal").classList.add("show");
+        focusFirstIn("cashCloseModal", "closeCounted");
+      }
+      let pendingClose = null;
+      // 1.9.0: pone el cursor en el primer campo solo si la persona todavía no
+      // empezó a escribir en otro campo de la misma ventana (no le roba el foco).
+      function focusFirstIn(modalId, fieldId) {
+        setTimeout(() => {
+          let m = gid(modalId),
+            a = document.activeElement;
+          if (m && m.classList.contains("show") && !(a && a !== document.body && m.contains(a)))
+            gid(fieldId).focus();
+        }, 50);
+      }
+      function diffInfo(d) {
+        d = Math.round(Number(d) || 0);
+        if (d === 0) return { key: "exacto", label: "✅ Exacto", cls: "diff-ok" };
+        if (d < 0) return { key: "faltante", label: "⚠ Faltante " + money(-d), cls: "diff-bad" };
+        return { key: "sobrante", label: "✅ Sobrante " + money(d), cls: "diff-ok" };
+      }
+      function cashBreakdownHtml(t) {
+        const L = (a, b, c) => '<div class="line' + (c ? " " + c : "") + '"><span>' + a + "</span><strong>" + b + "</strong></div>";
+        return (
+          L("Base inicial", money(t.opening)) +
+          L("Ventas en efectivo" + (t.cashTips ? " (sin propinas)" : ""), money(t.cashSalesNoTips)) +
+          (t.cashTips
+            ? L(
+                "Propinas en efectivo" + (t.tipsIn ? "" : " (excluidas del esperado)"),
+                (t.tipsIn ? "" : "(") + money(t.cashTips) + (t.tipsIn ? "" : ")"),
+                t.tipsIn ? "" : "muted",
+              )
+            : "") +
+          L("Ingresos manuales", money(t.ins)) +
+          L("Salidas manuales", (t.outs ? "-" : "") + money(t.outs)) +
+          L("Efectivo esperado", money(t.expected), "total")
+        );
+      }
+      function renderCloseDifference() {
+        if (!cashSession) return;
         let t = sessionTotals(),
-          count = prompt(
-            "Efectivo contado físicamente (COP):",
-            String(Math.round(t.expected)),
-          );
-        if (count === null) return;
-        count = Number(count);
-        if (!Number.isFinite(count) || count < 0) {
-          toast("El efectivo contado no es válido");
+          bd = gid("closeBreakdown"),
+          raw = gid("closeCounted").value,
+          el = gid("closeDiff");
+        if (bd) bd.innerHTML = cashBreakdownHtml(t);
+        if (raw === "") {
+          el.className = "change-line muted";
+          el.textContent = "Escribe el efectivo contado para calcular la diferencia";
+        } else {
+          let d = Number(raw) - t.expected,
+            i = diffInfo(d);
+          el.className = "change-line" + (i.key === "faltante" ? " bad" : "");
+          el.innerHTML = "<span>Diferencia " + (d > 0 ? "+" : d < 0 ? "-" : "") + money(Math.abs(d)) + "</span><strong>" + i.label + "</strong>";
+        }
+        let other = [],
+          cardRaw = gid("closeCard").value,
+          trRaw = gid("closeTransfers").value,
+          trSys = (t.byMethod.Nequi || 0) + (t.byMethod.Daviplata || 0) + (t.byMethod.Transferencia || 0);
+        if (cardRaw !== "")
+          other.push("Datáfono: sistema " + money(t.byMethod.Tarjeta || 0) + " · reportado " + money(Number(cardRaw)) + " · " + diffInfo(Number(cardRaw) - (t.byMethod.Tarjeta || 0)).label);
+        if (trRaw !== "")
+          other.push("Transferencias: sistema " + money(trSys) + " · verificado " + money(Number(trRaw)) + " · " + diffInfo(Number(trRaw) - trSys).label);
+        gid("closeOtherDiff").innerHTML = other.map(esc).join("<br>");
+      }
+      async function confirmCloseCash() {
+        if (!pendingClose || !cashSession || cashSession.status !== "open") {
+          closeCashModal("cashCloseModal");
           return;
         }
-        let note = prompt("Observaciones del cierre (opcional):", "") || "",
+        let check = pendingClose.check,
+          rawCount = gid("closeCounted").value,
+          count = Number(rawCount),
+          rawNext = gid("closeNextBase").value,
+          nextBase = Number(rawNext),
+          cardRaw = gid("closeCard").value,
+          trRaw = gid("closeTransfers").value;
+        if (rawCount === "" || !Number.isFinite(count) || count < 0) {
+          toast("Escribe el efectivo contado");
+          return;
+        }
+        if (rawNext === "" || !Number.isFinite(nextBase) || nextBase < 0) {
+          toast("Escribe la base de la nueva caja (puede ser 0)");
+          return;
+        }
+        gid("closeCashConfirm").disabled = true;
+        let t = sessionTotals(),
+          trSys = (t.byMethod.Nequi || 0) + (t.byMethod.Daviplata || 0) + (t.byMethod.Transferencia || 0),
+          note = gid("closeNotes").value.trim(),
+          nextNote = gid("closeNextNote").value.trim(),
           closed = {
             ...cashSession,
             status: "closed",
             closedAt: new Date().toISOString(),
             closedBy: syncUser?.uid || "local",
+            closedByName: BulletSupervision.myName(),
+            closedByOperator: operatorName() || null,
             countedCash: count,
             expectedCash: t.expected,
             difference: count - t.expected,
+            differenceStatus: diffInfo(count - t.expected).key,
             notes: note,
             salesCount: t.sales.length,
+            // 1.9.0: desglose guardado con el cierre (no se recalcula después).
+            byMethod: t.byMethod,
+            tipsTotal: t.tips,
+            cashTips: t.cashTips,
+            tipsInExpected: t.tipsIn,
+            salesNoTipsAtClose: t.salesNoTips,
+            insTotal: t.ins,
+            outsTotal: t.outs,
+            cardReported: cardRaw === "" ? null : Number(cardRaw),
+            cardDifference: cardRaw === "" ? null : Number(cardRaw) - (t.byMethod.Tarjeta || 0),
+            transfersReported: trRaw === "" ? null : Number(trRaw),
+            transfersDifference: trRaw === "" ? null : Number(trRaw) - trSys,
             // 1.6.0: datos para conciliar ventas tardías sin alterar el cierre.
             closeMode: "auto_new",
             includedSaleIds: t.sales.map((s) => String(s.id)),
@@ -5283,22 +5647,15 @@
               devices: check.rows,
             },
           };
-        let nextBase = prompt(
-          "Base inicial para la nueva caja automática (COP):",
-          "0",
-        );
-        if (nextBase === null) return;
-        nextBase = Number(nextBase);
-        if (!Number.isFinite(nextBase) || nextBase < 0) {
-          toast("Base de la nueva caja no válida");
-          return;
-        }
         let next = {
           id: makeId(),
           status: "open",
           openedAt: new Date().toISOString(),
           openedBy: syncUser?.uid || "local",
+          openedByName: BulletSupervision.myName(),
+          openedByOperator: operatorName() || null,
           openingAmount: nextBase,
+          openingNote: nextNote,
           day: cashDay(),
           createdAt: Date.now(),
           autoOpened: true,
@@ -5323,10 +5680,13 @@
               });
             });
           } catch (e) {
+            gid("closeCashConfirm").disabled = false;
             toast(e.message || "No se pudo cerrar la caja");
             return;
           }
         }
+        pendingClose = null;
+        closeCashModal("cashCloseModal");
         cashHistory.unshift(closed);
         BulletStore.put("cashSessions", closed).catch(() => {});
         if (closed.closeCheck.forced)
@@ -5336,16 +5696,37 @@
             devices: check.rows,
             issues: check.issues.map((x) => x.text),
           });
-        else
-          BulletAudit.record("cashClosed", {
+        BulletAudit.record("cashClosed", {
+          sessionId: closed.id,
+          expectedCash: closed.expectedCash,
+          countedCash: closed.countedCash,
+          difference: closed.difference,
+          state: closed.differenceStatus,
+          forced: !!closed.closeCheck.forced,
+        });
+        if (
+          closed.difference !== 0 ||
+          (closed.cardDifference != null && closed.cardDifference !== 0) ||
+          (closed.transfersDifference != null && closed.transfersDifference !== 0)
+        )
+          BulletAudit.record("cashDifference", {
             sessionId: closed.id,
-            expectedCash: closed.expectedCash,
-            countedCash: closed.countedCash,
+            difference: closed.difference,
+            state: closed.differenceStatus,
+            cardDifference: closed.cardDifference,
+            transfersDifference: closed.transfersDifference,
           });
+        BulletAudit.record("cashOpened", {
+          sessionId: next.id,
+          openingAmount: nextBase,
+          note: nextNote,
+          auto: true,
+          previousSessionId: closed.id,
+        });
         saveCashLocal(next);
         cashMovements = [];
         renderCashDashboard();
-        toast("Caja cerrada. Nueva sesión abierta automáticamente");
+        toast("Caja cerrada (" + diffInfo(closed.difference).label + "). Nueva caja abierta.");
       }
       async function addCashMovement() {
         if (!(await requireMainPassword("registrar un movimiento de caja")))
@@ -5369,6 +5750,8 @@
           reason,
           createdAt: new Date().toISOString(),
           deviceId: syncUser?.uid || "local",
+          deviceName: BulletSupervision.myName(),
+          operator: operatorName() || null,
           syncState: "pending",
         };
         cashMovements.unshift(m);
@@ -5388,6 +5771,13 @@
           toast("No se pudo guardar el movimiento en este dispositivo");
           return;
         }
+        BulletAudit.record("cashMovementAdded", {
+          sessionId: m.sessionId,
+          movementId: m.id,
+          type: m.type,
+          amount: m.amount,
+          reason: m.reason,
+        });
         gid("cashMoveAmount").value = "";
         gid("cashMoveReason").value = "";
         renderCashDashboard();
@@ -9794,6 +10184,544 @@
         restrictSalesInMemory();
         renderRoleUI();
       });
+      // ===== Bullet POS 1.9.0: jornada de caja completa (abrir, operar, cerrar, cuadrar) =====
+      const SUPPORT_EMAIL = "thebulletes@gmail.com";
+      const CASH_METHODS = ["Efectivo", "Tarjeta", "Nequi", "Daviplata", "Transferencia"];
+      // Totales cobrados por medio de pago (incluye la propina cobrada por ese medio).
+      function cashMethodTotals(sales) {
+        let o = {};
+        CASH_METHODS.forEach((m) => (o[m] = 0));
+        (sales || []).forEach((s) =>
+          salePayments(s).forEach((p) => {
+            let m = CASH_METHODS.includes(p.method) ? p.method : "Otros";
+            o[m] = (o[m] || 0) + cashAmount(p.amount);
+          }),
+        );
+        return o;
+      }
+      // Parte de la propina cobrada en efectivo (proporcional a la parte en efectivo).
+      function saleCashTip(s) {
+        let tip = saleTip(s),
+          tot = Number(s.total) || 0;
+        if (!tip || tot <= 0) return 0;
+        return Math.round((tip * saleCashPart(s)) / tot);
+      }
+      // Configuración de caja compartida (cafeterias/{cafeId}/control/cashConfig).
+      function cashConfig() {
+        return { tipsInExpected: true, ...((data.settings && data.settings.cashConfig) || {}) };
+      }
+      async function setCashTipsMode(v) {
+        let want = v === "include";
+        if (want === (cashConfig().tipsInExpected !== false)) return;
+        if (!(await requireMainPassword("cambiar la configuración de caja"))) {
+          renderCashConfig();
+          return;
+        }
+        let before = cashConfig().tipsInExpected !== false,
+          cfg = { tipsInExpected: want, updatedAt: Date.now(), updatedBy: currentDeviceId() };
+        data.settings.cashConfig = cfg;
+        persist();
+        if (firebaseConfigured())
+          await BulletSync.enqueueDoc("control", "cashConfig", cfg, { kind: "business" });
+        BulletAudit.record("cashConfigChanged", {
+          setting: "propinas en el efectivo esperado",
+          before: before ? "incluir" : "excluir",
+          after: want ? "incluir" : "excluir",
+        });
+        renderCashDashboard();
+        toast(want ? "Las propinas se incluyen en el efectivo esperado" : "Las propinas se excluyen del efectivo esperado");
+      }
+      let cashConfigUnsub = null;
+      function startCashConfigListener() {
+        if (!syncReady || !deviceApproved || cashConfigUnsub) return;
+        cashConfigUnsub = cloudRoot()
+          .collection("control")
+          .doc("cashConfig")
+          .onSnapshot(
+            (snap) => {
+              if (!snap.exists || BulletSync.isPending("cashConfig")) return;
+              let d = snap.data();
+              data.settings.cashConfig = { tipsInExpected: d.tipsInExpected !== false, updatedAt: d.updatedAt || null, updatedBy: d.updatedBy || null };
+              persist();
+              if (typeof renderCashDashboard === "function") renderCashDashboard();
+            },
+            (e) => console.warn("Configuración de caja:", e && (e.code || e.message)),
+          );
+      }
+      function renderCashConfig() {
+        let inc = cashConfig().tipsInExpected !== false;
+        document.querySelectorAll('input[name="tipsMode"]').forEach((r) => {
+          r.checked = r.value === (inc ? "include" : "exclude");
+          r.disabled = !deviceIsMain();
+        });
+        let info = gid("cashConfigInfo");
+        if (info)
+          info.textContent = inc
+            ? "Las propinas cobradas en efectivo se suman al efectivo esperado (quedan en la caja)."
+            : "Las propinas cobradas en efectivo NO se suman al efectivo esperado (se entregan aparte al personal).";
+      }
+
+      // --- Responsables ---
+      function personLabel(uid, name, operator) {
+        let n = name;
+        if (!n && uid) {
+          let d = devicesList.find((x) => x.id === uid);
+          n = (d && d.name) || (syncUser && uid === syncUser.uid ? BulletSupervision.myName() : "");
+        }
+        if (!n) return operator ? operator : "No disponible";
+        return n + (operator ? " (" + operator + ")" : "");
+      }
+      function fmtDT(v) {
+        let d = new Date(v);
+        return v && Number.isFinite(d.getTime()) ? d.toLocaleString("es-CO", { hour12: false }) : "No disponible";
+      }
+
+      // --- Resumen de cada caja (abierta o cerrada) ---
+      function sessionSummary(h) {
+        let isOpen = h.status === "open" && cashSession && h.id === cashSession.id,
+          t = isOpen ? sessionTotals() : null,
+          inc = Array.isArray(h.includedSaleIds) ? new Set(h.includedSaleIds.map(String)) : null,
+          sales = data.sales.filter(
+            (s) => !s.voided && s.cashSessionId === h.id && (!inc || inc.has(String(s.id))),
+          ),
+          byMethod = t ? t.byMethod : h.byMethod || cashMethodTotals(sales),
+          tips = t ? t.tips : h.tipsTotal != null ? h.tipsTotal : sales.reduce((a, s) => a + saleTip(s), 0),
+          total = t ? t.total : h.salesTotalAtClose != null ? h.salesTotalAtClose : sales.reduce((a, s) => a + cashAmount(s.total), 0),
+          ins = t ? t.ins : h.insTotal != null ? h.insTotal : null,
+          outs = t ? t.outs : h.outsTotal != null ? h.outsTotal : null,
+          expected = t ? t.expected : h.expectedCash != null ? h.expectedCash : null,
+          counted = isOpen ? null : h.countedCash != null ? h.countedCash : null,
+          diff = isOpen ? null : h.difference != null ? h.difference : null;
+        return {
+          id: h.id,
+          isOpen,
+          openedAt: h.openedAt,
+          closedAt: isOpen ? null : h.closedAt,
+          opening: cashAmount(h.openingAmount),
+          openingNote: h.openingNote || "",
+          byMethod,
+          total,
+          tips,
+          ins,
+          outs,
+          expected,
+          counted,
+          diff,
+          openedBy: personLabel(h.openedBy, h.openedByName, h.openedByOperator),
+          closedBy: isOpen ? "" : personLabel(h.closedBy, h.closedByName, h.closedByOperator),
+          status: isOpen ? "Abierta" : "Cerrada · " + (diff == null ? "sin dato" : diffInfo(diff).label),
+          tipsMode: h.tipsInExpected === false ? "excluidas" : h.tipsInExpected === true ? "incluidas" : "No disponible",
+          forced: !!(h.closeCheck && h.closeCheck.forced),
+        };
+      }
+      function allCashSessions() {
+        let m = new Map();
+        cashHistory.forEach((h) => h && h.id && m.set(h.id, h));
+        if (cashSession && cashSession.id) m.set(cashSession.id, cashSession);
+        return [...m.values()].sort((a, b) => String(b.openedAt || "").localeCompare(String(a.openedAt || "")));
+      }
+      const nd = (v) => (v == null ? "No disponible" : money(v));
+
+      // --- Panel de caja ---
+      function renderVentaCashBanner() {
+        let open = !!(cashSession && cashSession.status === "open"),
+          main = deviceIsMain(),
+          show = !open && (main || (firebaseConfigured() && syncReady));
+        ["ventaCashBanner", "cashBanner"].forEach((id) => {
+          let el = gid(id);
+          if (!el) return;
+          el.style.display = show ? "flex" : "none";
+          if (!show) return;
+          el.innerHTML = main
+            ? '<span>🔒 La caja está cerrada. Ábrela con la base inicial antes de empezar a vender.</span><button class="btn small primary" onclick="openCashSession()">Abrir caja</button>'
+            : "<span>🔒 La caja está cerrada: las ventas quedarán sin caja hasta que un PC Main la abra.</span>";
+        });
+      }
+      function editableMove(m) {
+        return cashSession && cashSession.status === "open" && m.sessionId === cashSession.id;
+      }
+      async function editCashMovement(id) {
+        let m = cashMovements.find((x) => x.id === id);
+        if (!m) return;
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede editar movimientos de caja");
+          return;
+        }
+        if (!editableMove(m)) {
+          toast("Solo se editan movimientos de la caja abierta; las cajas cerradas no se modifican");
+          return;
+        }
+        if (!(await requireMainPassword("editar un movimiento de caja"))) return;
+        let v = prompt("Nuevo valor del movimiento (COP):", String(m.amount));
+        if (v === null) return;
+        let amount = Number(v);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          toast("Valor no válido");
+          return;
+        }
+        let reason = prompt("Motivo (actual: " + m.reason + "):", m.reason);
+        if (reason === null) return;
+        reason = reason.trim() || m.reason;
+        if (amount === m.amount && reason === m.reason) return;
+        if (
+          !confirm(
+            "Editar movimiento\n\nAntes: " +
+              (m.type === "in" ? "Ingreso" : "Salida") +
+              " " +
+              money(m.amount) +
+              " · " +
+              m.reason +
+              "\nDespués: " +
+              money(amount) +
+              " · " +
+              reason +
+              "\n\nEl cambio queda en la auditoría.",
+          )
+        )
+          return;
+        let at = new Date().toISOString(),
+          before = { amount: m.amount, reason: m.reason, type: m.type },
+          edit = { at, by: currentDeviceId(), byName: BulletSupervision.myName(), operator: operatorName() || null, before, after: { amount, reason, type: m.type } };
+        m.amount = amount;
+        m.reason = reason;
+        m.updatedAt = at;
+        m.edits = (Array.isArray(m.edits) ? m.edits : []).concat(edit);
+        m.syncState = "pending";
+        try {
+          localStorage.setItem("bullet_pos_cash_moves", JSON.stringify(cashMovements));
+        } catch (e) {}
+        await BulletStore.put("cashMovements", m).catch(() => {});
+        await BulletSync.enqueueDoc("cashMovements", m.id, m, { kind: "cashMove" });
+        BulletAudit.record("cashMovementEdited", {
+          sessionId: m.sessionId,
+          movementId: m.id,
+          type: m.type,
+          before,
+          after: edit.after,
+        });
+        renderCashDashboard();
+        toast("Movimiento actualizado");
+      }
+      function renderCashExtras() {
+        renderVentaCashBanner();
+        if (!gid("cashMethods")) return;
+        let open = !!(cashSession && cashSession.status === "open"),
+          t = sessionTotals(),
+          main = deviceIsMain();
+        renderCashConfig();
+        gid("cashMethods").innerHTML = open
+          ? CASH_METHODS.concat(t.byMethod.Otros ? ["Otros"] : [])
+              .map((m) => '<div class="cash-metric"><span>' + esc(m) + "</span><strong>" + money(t.byMethod[m] || 0) + "</strong></div>")
+              .join("") +
+            '<div class="cash-metric"><span>Propinas (todas)</span><strong>' +
+            money(t.tips) +
+            "</strong></div>"
+          : '<div class="sub">Sin caja abierta.</div>';
+        gid("cashLive").innerHTML = open
+          ? cashBreakdownHtml(t) +
+            '<div class="line muted"><span>Ventas de la caja sin propinas (lo que vendió el negocio)</span><strong>' +
+            money(t.salesNoTips) +
+            '</strong></div><div class="line muted"><span>Abierta por</span><strong>' +
+            esc(personLabel(cashSession.openedBy, cashSession.openedByName, cashSession.openedByOperator)) +
+            " · " +
+            esc(fmtDT(cashSession.openedAt)) +
+            "</strong></div>" +
+            (cashSession.openingNote
+              ? '<div class="line muted"><span>Observación de apertura</span><strong>' + esc(cashSession.openingNote) + "</strong></div>"
+              : "")
+          : '<div class="sub">Abre la caja para ver el cuadre en vivo.</div>';
+        // Movimientos de la caja abierta, con responsable y edición auditada.
+        let moves = cashMovements.filter((m) => cashSession && m.sessionId === cashSession.id);
+        gid("cashMovements").innerHTML = moves.length
+          ? '<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Motivo</th><th>Valor</th><th>Usuario</th><th></th></tr></thead><tbody>' +
+            moves
+              .map(
+                (m) =>
+                  "<tr><td>" +
+                  esc(fmtDT(m.createdAt)) +
+                  "</td><td>" +
+                  (m.type === "in" ? "Ingreso" : "Salida") +
+                  "</td><td>" +
+                  esc(m.reason) +
+                  (m.edits && m.edits.length ? '<div class="correction-log">Editado ' + m.edits.length + " vez/veces</div>" : "") +
+                  "</td><td>" +
+                  (m.type === "in" ? "" : "-") +
+                  money(m.amount) +
+                  "</td><td>" +
+                  esc(personLabel(m.deviceId, m.deviceName, m.operator)) +
+                  "</td><td>" +
+                  (main && editableMove(m)
+                    ? '<button class="btn small" onclick="editCashMovement(\'' + esc(m.id) + "')\">Editar</button>"
+                    : "") +
+                  "</td></tr>",
+              )
+              .join("") +
+            "</tbody></table></div>"
+          : "Sin movimientos adicionales.";
+        // Historial de cajas.
+        let rows = allCashSessions().slice(0, 60).map(sessionSummary);
+        gid("cashSessionsTable").innerHTML = rows.length
+          ? '<div class="table-wrap"><table class="cash-table"><thead><tr><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Abrió</th><th>Cerró</th><th>Base</th><th>Ventas</th><th>Propinas</th><th>Ingresos</th><th>Salidas</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody>' +
+            rows
+              .map(
+                (r) =>
+                  "<tr><td>" +
+                  esc(String(r.id).slice(0, 8)) +
+                  "</td><td>" +
+                  esc(fmtDT(r.openedAt)) +
+                  "</td><td>" +
+                  (r.isOpen ? "—" : esc(fmtDT(r.closedAt))) +
+                  "</td><td>" +
+                  esc(r.openedBy) +
+                  "</td><td>" +
+                  esc(r.isOpen ? "—" : r.closedBy) +
+                  "</td><td>" +
+                  money(r.opening) +
+                  "</td><td>" +
+                  money(r.total) +
+                  "</td><td>" +
+                  money(r.tips) +
+                  "</td><td>" +
+                  nd(r.ins) +
+                  "</td><td>" +
+                  (r.outs == null ? "No disponible" : (r.outs ? "-" : "") + money(r.outs)) +
+                  "</td><td>" +
+                  nd(r.expected) +
+                  "</td><td>" +
+                  (r.isOpen ? "—" : nd(r.counted)) +
+                  '</td><td class="' +
+                  (r.diff == null ? "" : diffInfo(r.diff).cls) +
+                  '">' +
+                  (r.isOpen ? "—" : r.diff == null ? "No disponible" : (r.diff > 0 ? "+" : r.diff < 0 ? "-" : "") + money(Math.abs(r.diff))) +
+                  "</td><td>" +
+                  esc(r.status) +
+                  (r.forced ? " · cierre con advertencias" : "") +
+                  "</td></tr>",
+              )
+              .join("") +
+            "</tbody></table></div>"
+          : "Todavía no hay cajas registradas.";
+      }
+      const _renderCashDashboard190 = renderCashDashboard;
+      renderCashDashboard = function () {
+        _renderCashDashboard190();
+        renderCashExtras();
+      };
+      const _saveCashLocal190 = saveCashLocal;
+      saveCashLocal = function (s) {
+        _saveCashLocal190(s);
+        renderVentaCashBanner();
+      };
+
+      // --- Excel: hojas «Cajas» y «Movimientos de Caja» ---
+      const CASH_SHEET_COLS = [
+        "Caja ID",
+        "Apertura",
+        "Cierre",
+        "Base inicial",
+        "Ventas efectivo",
+        "Ventas tarjeta",
+        "Ventas Nequi",
+        "Ventas Daviplata",
+        "Ventas transferencia",
+        "Propinas",
+        "Ingresos",
+        "Salidas",
+        "Esperado",
+        "Contado",
+        "Diferencia",
+        "Responsable apertura",
+        "Responsable cierre",
+      ];
+      const MOVES_SHEET_COLS = ["Fecha", "Hora", "Tipo", "Motivo", "Valor", "Usuario"];
+      async function allCashMovements() {
+        let m = new Map();
+        try {
+          (await BulletStore.all("cashMovements")).forEach((x) => x && x.id && m.set(x.id, x));
+        } catch (e) {}
+        if (syncReady && deviceApproved && deviceIsMain()) {
+          try {
+            let snap = await withTimeout(cashMovesRef().get(), 10000);
+            snap.docs.forEach((d) => m.set(d.id, { ...d.data(), id: d.id }));
+          } catch (e) {
+            console.warn("Movimientos de caja del servidor no disponibles:", e && (e.code || e.message));
+          }
+        }
+        cashMovements.forEach((x) => x && x.id && m.set(x.id, x));
+        return [...m.values()].sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+      }
+      async function gatherCashExport() {
+        let num = (v) => (v == null ? "No disponible" : Math.round(Number(v) || 0)),
+          sessions = allCashSessions().map((h) => {
+            let r = sessionSummary(h);
+            return {
+              "Caja ID": String(r.id),
+              Apertura: fmtDT(r.openedAt),
+              Cierre: r.isOpen ? "Abierta" : fmtDT(r.closedAt),
+              "Base inicial": r.opening,
+              "Ventas efectivo": num(r.byMethod.Efectivo),
+              "Ventas tarjeta": num(r.byMethod.Tarjeta),
+              "Ventas Nequi": num(r.byMethod.Nequi),
+              "Ventas Daviplata": num(r.byMethod.Daviplata),
+              "Ventas transferencia": num(r.byMethod.Transferencia),
+              Propinas: num(r.tips),
+              Ingresos: num(r.ins),
+              Salidas: num(r.outs),
+              Esperado: num(r.expected),
+              Contado: r.isOpen ? "Caja abierta" : num(r.counted),
+              Diferencia: r.isOpen ? "Caja abierta" : num(r.diff),
+              "Responsable apertura": r.openedBy,
+              "Responsable cierre": r.isOpen ? "Caja abierta" : r.closedBy,
+            };
+          }),
+          movements = (await allCashMovements()).map((m) => {
+            let d = new Date(m.createdAt),
+              ok = Number.isFinite(d.getTime());
+            return {
+              Fecha: ok ? d.toLocaleDateString("es-CO") : "No disponible",
+              Hora: ok ? d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : "No disponible",
+              Tipo: m.type === "in" ? "Ingreso" : "Salida",
+              Motivo: String(m.reason || "") + (m.edits && m.edits.length ? " (editado)" : ""),
+              Valor: (m.type === "in" ? 1 : -1) * (Number(m.amount) || 0),
+              Usuario: personLabel(m.deviceId, m.deviceName, m.operator),
+            };
+          });
+        return { sessions, movements };
+      }
+      const _exportExcel190 = exportExcel;
+      exportExcel = async function () {
+        if (isRestrictedDevice()) return _exportExcel190(); // muestra el bloqueo
+        try {
+          window.__cashExport = await gatherCashExport();
+        } catch (e) {
+          console.warn("Datos de caja para Excel:", e);
+          window.__cashExport = null;
+        }
+        try {
+          return _exportExcel190();
+        } finally {
+          window.__cashExport = null;
+        }
+      };
+
+      // --- Respaldo JSON: aperturas, cierres, movimientos, estado y configuración ---
+      const _buildBackupPayload190 = buildBackupPayload;
+      buildBackupPayload = async function () {
+        let p = await _buildBackupPayload190();
+        try {
+          let sessions = allCashSessions();
+          (await BulletStore.all("cashSessions")).forEach((h) => {
+            if (h && h.id && !sessions.some((x) => x.id === h.id)) sessions.push(h);
+          });
+          p.extra = p.extra || {};
+          p.extra.cash = {
+            openings: sessions.map((h) => ({
+              id: h.id,
+              openedAt: h.openedAt || null,
+              openedBy: h.openedBy || null,
+              openedByName: h.openedByName || null,
+              openedByOperator: h.openedByOperator || null,
+              openingAmount: cashAmount(h.openingAmount),
+              openingNote: h.openingNote || "",
+            })),
+            closings: sessions.filter((h) => h.status === "closed"),
+            sessions,
+            movements: await allCashMovements(),
+            currentSession: cashSession || null,
+            config: cashConfig(),
+          };
+        } catch (e) {
+          console.warn("Respaldo de caja incompleto:", e);
+        }
+        return p;
+      };
+      // Restauración: agrega cajas y movimientos que no existan (nunca sobrescribe).
+      const _restoreExtras190 = BulletStore.restoreExtras;
+      BulletStore.restoreExtras = async function (x) {
+        await _restoreExtras190(x);
+        if (x && x.cash) {
+          await _restoreExtras190({
+            cashSessions: Array.isArray(x.cash.sessions) ? x.cash.sessions : [],
+            cashMovements: Array.isArray(x.cash.movements) ? x.cash.movements : [],
+          });
+          if (x.cash.config && !(data.settings && data.settings.cashConfig)) {
+            data.settings.cashConfig = x.cash.config;
+            persist();
+          }
+        }
+      };
+
+      // --- Soporte por correo (mailto, funciona sin servicios externos) ---
+      function pdfFooterLines() {
+        let W = 40,
+          hr = "-".repeat(W),
+          c = (t) => " ".repeat(Math.max(0, Math.floor((W - t.length) / 2))) + t;
+        return [hr, c("Generado por Bullet POS"), "", c("Soporte:"), c("thebulletes@gmail.com"), hr];
+      }
+      function contactSupport() {
+        location.href = supportMailtoUrl();
+      }
+      function supportMailtoUrl() {
+        let subject = "Soporte Bullet POS v" + APP_VERSION,
+          body =
+            "Hola, necesito ayuda con Bullet POS.\n\nDescribe aquí el problema:\n\n\n---\nVersión: " +
+            APP_VERSION +
+            "\nNegocio: " +
+            String((window.POS_CONFIG && window.POS_CONFIG.cafeId) || "local") +
+            "\nEquipo: " +
+            BulletSupervision.myName() +
+            (deviceIsMain() ? " (PC Main)" : "") +
+            "\nFecha: " +
+            new Date().toLocaleString("es-CO", { hour12: false });
+        return (
+          "mailto:" + SUPPORT_EMAIL + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body.replace(/\n/g, "\r\n"))
+        );
+      }
+      const _renderSettings190 = renderSettings;
+      renderSettings = function () {
+        _renderSettings190();
+        let si = gid("supportInfo");
+        if (si) si.textContent = "Correo de soporte: " + SUPPORT_EMAIL + " · se abre tu app de correo (funciona sin internet; se envía al reconectar).";
+      };
+
+      // --- Etiquetas de auditoría y conexión con la sincronización ---
+      Object.assign(AUDIT_LABEL, {
+        cashOpened: "Caja abierta",
+        cashMovementAdded: "Movimiento de caja registrado",
+        cashMovementEdited: "Movimiento de caja editado",
+        cashDifference: "Diferencia de caja detectada",
+        cashConfigChanged: "Modificación administrativa de caja",
+      });
+      const _auditSummary190 = auditSummary;
+      auditSummary = function (d) {
+        d = d || {};
+        let base = _auditSummary190(d),
+          extra = [];
+        if (d.openingAmount != null) extra.push("base " + money(d.openingAmount) + (d.auto ? " (apertura automática)" : ""));
+        if (d.note) extra.push("obs.: " + d.note);
+        if (d.expectedCash != null) extra.push("esperado " + money(d.expectedCash) + " · contado " + money(d.countedCash));
+        if (d.difference != null) extra.push("diferencia " + money(d.difference));
+        if (d.type && d.amount != null && d.movementId) extra.push((d.type === "in" ? "ingreso " : "salida ") + money(d.amount));
+        if (d.before && d.after && d.before.amount != null)
+          extra.push(money(d.before.amount) + " → " + money(d.after.amount) + (d.after.reason !== d.before.reason ? " · " + d.after.reason : ""));
+        if (d.setting) extra.push(d.setting + ": " + d.before + " → " + d.after);
+        if (d.forced) extra.push("cierre con advertencias");
+        return [base].concat(extra).filter(Boolean).join(" · ");
+      };
+      const _startCloudSync190 = startCloudSync;
+      startCloudSync = async function (fromRestore = false) {
+        await _startCloudSync190(fromRestore);
+        if (syncReady && deviceApproved) startCashConfigListener();
+        renderVentaCashBanner();
+      };
+      // El indicador de respaldo solo tiene sentido donde se pueden hacer respaldos.
+      const _renderRoleUI190 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI190();
+        let bk = gid("backupInd");
+        if (bk) bk.style.display = isRestrictedDevice() ? "none" : "";
+        renderVentaCashBanner();
+      };
       renderArchiveLog();
 
       renderProducts();

@@ -1,6 +1,46 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 1.9.0 (jornada de caja: abrir, operar, registrar, cerrar, cuadrar)
+--------------------------------------------------------------------------
+Incluye todo lo de 1.8.1, 1.8.0, 1.7.0 y 1.6.0. Solo cambian index.html y
+sw.js; las reglas de Firestore son las mismas de 1.8.0 (no hay que volver a
+publicarlas). Haz un respaldo JSON antes de actualizar.
+
+Qué cambia:
+- Abrir caja: ventana con base inicial y observación opcional. Se guarda
+  caja ID, fecha, hora, dispositivo y persona. La base nunca cuenta como
+  venta. Con la caja cerrada, Venta y Caja muestran el aviso «Abrir caja»;
+  no se puede cerrar sin apertura.
+- Movimientos de caja (ingreso/salida): valor, motivo, fecha, hora,
+  dispositivo y persona. Un PC Main puede editarlos mientras la caja esté
+  abierta; cada edición guarda el valor anterior. Las cajas cerradas no se
+  modifican ni se eliminan.
+- Totales separados por medio de pago: Efectivo, Tarjeta, Nequi, Daviplata y
+  Transferencia, más propinas.
+- Configuración: incluir o excluir propinas del efectivo esperado (con
+  contraseña, auditado y compartido entre los dos Main). La propina en
+  efectivo se calcula en proporción a lo pagado en efectivo.
+- Cierre de caja: desglose (base, ventas efectivo, ingresos, salidas,
+  propinas), efectivo contado y diferencia: ✅ Exacto / ⚠ Faltante /
+  ✅ Sobrante. Opcional: total del datáfono y transferencias verificadas para
+  detectar diferencias entre efectivo, tarjeta y transferencias. Se conserva
+  la revisión de dispositivos y la apertura automática (auto_new).
+- Historial de cajas: caja ID, apertura, cierre, responsables, base, ventas,
+  propinas, ingresos, salidas, esperado, contado, diferencia y estado. En
+  cierres anteriores a 1.9.0 aparece «No disponible» donde falta el dato.
+- Auditoría: caja abierta, caja cerrada, movimiento registrado, movimiento
+  editado, diferencia detectada, modificación administrativa, cierre forzado.
+- Excel: se conservan las hojas actuales y se agregan «Cajas» y
+  «Movimientos de Caja».
+- Respaldo JSON: incluye aperturas, cierres, movimientos, caja actual y
+  configuración de caja. La restauración solo agrega lo que falta.
+- Indicador de último respaldo (🟢 <24 h, 🟠 1–7 días, 🔴 >7 días), sin
+  ventanas emergentes; no se muestra en equipos de meseros.
+- Soporte: Ajustes > Soporte abre el correo hacia thebulletes@gmail.com por
+  mailto (funciona sin servicios externos). El PDF trae al pie «Generado por
+  Bullet POS / Soporte: thebulletes@gmail.com».
+
 VERSIÓN 1.8.1 (corrección de caja)
 ----------------------------------
 Corrige que un PC Main podía perder localmente la caja recién abierta si la
