@@ -1,0 +1,404 @@
+<!doctype html>
+<!-- Bullet POS · Copyright (c) 2025-2026 thebulletes-web. Todos los derechos reservados. -->
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bullet POS · Punto de venta para cafés y restaurantes</title>
+    <meta name="description" content="Bullet POS: punto de venta para cafés y restaurantes. Vende aunque se caiga el internet, controla la caja, las mesas, los meseros y el costo de cada producto." />
+    <meta property="og:title" content="Bullet POS · Punto de venta para cafés y restaurantes" />
+    <meta property="og:description" content="Vende aunque se caiga el internet. Caja, mesas, meseros, inventario y costos en un solo lugar." />
+    <meta property="og:image" content="https://thebulletes-web.github.io/bullet-coffee-pos/presentacion/img/venta.jpg" />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#173c35" />
+    <style>
+      :root {
+        --ink: #20312d;
+        --muted: #66756f;
+        --green: #173c35;
+        --green2: #28584d;
+        --cream: #f5f3ed;
+        --paper: #fffefa;
+        --line: #e4e2d8;
+        --orange: #d98245;
+        --soft: #eef3ef;
+        --wa: #1f9d55;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body { margin: 0; background: var(--cream); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      a { color: var(--green2); }
+      img { max-width: 100%; }
+      header.top { position: sticky; top: 0; z-index: 20; background: var(--green); color: #fff; box-shadow: 0 4px 18px #0002; }
+      .bar { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 18px; padding: 11px 20px; }
+      .brand { font-weight: 900; letter-spacing: 0.02em; font-size: 20px; white-space: nowrap; }
+      .brand span { color: #e9b07d; }
+      .bar nav { display: flex; gap: 4px; margin-left: auto; }
+      .bar nav a { color: #fff; text-decoration: none; font-size: 15px; padding: 7px 11px; border-radius: 999px; opacity: 0.9; }
+      .bar nav a:hover { background: #ffffff1f; opacity: 1; }
+      .btn { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 999px; padding: 12px 20px; font: inherit; font-weight: 800; cursor: pointer; text-decoration: none; white-space: nowrap; }
+      .btn.wa { background: var(--wa); color: #fff; }
+      .btn.wa:hover { filter: brightness(1.08); }
+      .btn.ghost { background: #ffffff1f; color: #fff; }
+      .btn.ghost:hover { background: #ffffff33; }
+      .btn.small { padding: 8px 14px; font-size: 14.5px; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+      /* Portada */
+      .hero { background: linear-gradient(135deg, var(--green), var(--green2)); color: #fff; padding: 56px 0 70px; }
+      .hero .wrap { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+      .hero h1 { font-size: 44px; line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.01em; }
+      .hero h1 em { font-style: normal; color: #f0c08f; }
+      .hero p { font-size: 19px; opacity: 0.93; margin: 0 0 24px; }
+      .hero .ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+      .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+      .chip { background: #ffffff22; border-radius: 999px; padding: 5px 13px; font-size: 14px; font-weight: 700; }
+      .shots { position: relative; }
+      .shots .pc { width: 100%; border-radius: 14px; box-shadow: 0 18px 50px #0007; display: block; }
+      .shots .phone { position: absolute; right: -14px; bottom: -40px; width: 30%; border-radius: 22px; border: 6px solid #1b2522; box-shadow: 0 16px 40px #0008; }
+      /* Secciones */
+      section.blk { padding: 70px 0; scroll-margin-top: 60px; }
+      section.blk.alt { background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .kicker { color: var(--orange); font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; font-size: 13.5px; margin: 0 0 6px; }
+      h2 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; }
+      .lead { color: var(--muted); font-size: 18.5px; max-width: 760px; margin: 0 0 34px; }
+      .grid { display: grid; gap: 18px; }
+      .g4 { grid-template-columns: repeat(4, 1fr); }
+      .g3 { grid-template-columns: repeat(3, 1fr); }
+      .g2 { grid-template-columns: repeat(2, 1fr); }
+      .card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 22px; }
+      .alt .card { background: var(--cream); }
+      .card .ic { font-size: 28px; }
+      .card h3 { margin: 8px 0 6px; font-size: 19px; }
+      .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+      .card .prob { color: var(--muted); font-size: 15px; margin: 0 0 8px; font-style: italic; }
+      /* Recorrido */
+      .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+      .tabs button { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 10px 18px; font: inherit; font-size: 15.5px; font-weight: 700; cursor: pointer; }
+      .tabs button[aria-selected="true"] { background: var(--green); color: #fff; border-color: var(--green); }
+      .tour { display: grid; grid-template-columns: 1.45fr 1fr; gap: 30px; align-items: center; }
+      .tour figure { margin: 0; }
+      .tour img { width: 100%; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 12px 34px #20312d22; cursor: zoom-in; display: block; background: #fff; }
+      .tour figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; text-align: center; }
+      .tour h3 { font-size: 25px; margin: 0 0 10px; }
+      .tour ul { padding: 0; margin: 0; list-style: none; }
+      .tour li { padding: 9px 0 9px 32px; position: relative; border-bottom: 1px dashed var(--line); }
+      .tour li:before { content: "✓"; position: absolute; left: 4px; top: 8px; color: #fff; background: var(--green2); border-radius: 50%; width: 21px; height: 21px; font-size: 13px; display: grid; place-items: center; font-weight: 900; }
+      .panel { display: none; }
+      .panel.on { display: grid; animation: fade 0.25s ease; }
+      @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      /* Perfiles */
+      .profile h3 { font-size: 21px; }
+      .profile ul { padding-left: 20px; margin: 10px 0 0; color: var(--ink); font-size: 15.5px; }
+      .profile .tag { display: inline-block; background: var(--soft); color: var(--green); border-radius: 999px; padding: 3px 11px; font-size: 13px; font-weight: 800; }
+      /* Pasos */
+      .steps { counter-reset: s; }
+      .step { position: relative; padding-top: 52px; }
+      .step:before { counter-increment: s; content: counter(s); position: absolute; top: 18px; left: 22px; width: 32px; height: 32px; border-radius: 50%; background: var(--orange); color: #fff; font-weight: 900; display: grid; place-items: center; }
+      /* Precio */
+      .price { background: linear-gradient(135deg, var(--green), var(--green2)); color: #fff; border-radius: 24px; padding: 38px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 30px; align-items: center; }
+      .price h2 { color: #fff; }
+      .price p { opacity: 0.92; margin: 0 0 10px; }
+      .price ul { margin: 0; padding-left: 20px; opacity: 0.95; }
+      .price .box { background: #ffffff14; border: 1px solid #ffffff30; border-radius: 18px; padding: 24px; text-align: center; }
+      .price .big { font-size: 30px; font-weight: 900; margin: 0 0 6px; }
+      /* FAQ */
+      details.faq { border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin: 10px 0; background: var(--paper); }
+      details.faq summary { cursor: pointer; font-weight: 800; }
+      details.faq p { margin: 10px 0 2px; color: var(--muted); }
+      /* Final */
+      .final { text-align: center; }
+      .final .lead { margin: 0 auto 26px; }
+      footer { text-align: center; color: var(--muted); font-size: 13.5px; padding: 26px 20px 90px; }
+      .fab { position: fixed; right: 18px; bottom: 18px; z-index: 40; box-shadow: 0 10px 26px #0004; }
+      #lb { position: fixed; inset: 0; background: #0c1513e8; display: none; align-items: center; justify-content: center; z-index: 60; padding: 20px; cursor: zoom-out; }
+      #lb.show { display: flex; }
+      #lb img { max-width: 100%; max-height: 92vh; border-radius: 12px; box-shadow: 0 20px 60px #000; }
+      @media (max-width: 980px) {
+        .g4 { grid-template-columns: repeat(2, 1fr); }
+        .g3 { grid-template-columns: 1fr 1fr; }
+        .bar nav { display: none; }
+        .bar .btn { margin-left: auto; }
+      }
+      @media (max-width: 760px) {
+        body { font-size: 16px; }
+        .hero { padding: 36px 0 60px; }
+        .hero .wrap, .tour, .price { grid-template-columns: 1fr; }
+        .hero h1 { font-size: 32px; }
+        .hero p { font-size: 17px; }
+        h2 { font-size: 27px; }
+        .lead { font-size: 16.5px; }
+        section.blk { padding: 50px 0; }
+        .g4, .g3, .g2 { grid-template-columns: 1fr; }
+        .shots .phone { right: -6px; bottom: -30px; }
+        .price { padding: 26px 22px; }
+        .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+        .tabs button { flex: none; }
+        .bar .btn span.t { display: none; }
+        .fab { display: none; }
+        footer { padding-bottom: 30px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="bar">
+        <div class="brand">BULLET <span>POS</span></div>
+        <nav>
+          <a href="#resuelve">Qué resuelve</a>
+          <a href="#recorrido">Recorrido</a>
+          <a href="#tranquilidad">Tranquilidad</a>
+          <a href="#precio">Precio</a>
+          <a href="#preguntas">Preguntas</a>
+        </nav>
+        <a class="btn wa small js-wa" href="#" target="_blank" rel="noopener">💬 <span class="t">Pedir una demostración</span><span class="m">WhatsApp</span></a>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="wrap">
+        <div>
+          <h1>El punto de venta que <em>sigue vendiendo</em> aunque se caiga el internet</h1>
+          <p>Bullet POS reúne en un solo lugar las ventas, las mesas, los meseros, la caja y el costo de cada producto. Funciona en el PC de la caja y en los celulares de tu equipo.</p>
+          <div class="ctas">
+            <a class="btn wa js-wa" href="#" target="_blank" rel="noopener">💬 Pedir una demostración</a>
+            <a class="btn ghost" href="#recorrido">Ver cómo funciona ↓</a>
+          </div>
+          <div class="chips"><span class="chip">☕ Cafés y restaurantes</span><span class="chip">💻 PC, tablet y celular</span><span class="chip">📶 Funciona sin internet</span></div>
+        </div>
+        <div class="shots">
+          <img class="pc" src="img/venta.jpg" alt="Pantalla de venta de Bullet POS en el PC" />
+          <img class="phone" src="img/m_venta.jpg" alt="Bullet POS en el celular de un mesero" />
+        </div>
+      </div>
+    </section>
+
+    <section class="blk" id="resuelve">
+      <div class="wrap">
+        <p class="kicker">Qué resuelve</p>
+        <h2>Menos cuentas a mano, más control</h2>
+        <p class="lead">Los problemas de todos los días en un café o restaurante, resueltos desde la misma pantalla.</p>
+        <div class="grid g4">
+          <div class="card"><div class="ic">💵</div><p class="prob">«La caja nunca cuadra»</p><h3>Cierre de caja claro</h3><p>Base, ventas por medio de pago, movimientos y conteo por billetes y monedas. La diferencia se ve al instante.</p></div>
+          <div class="card"><div class="ic">🧑‍🍳</div><p class="prob">«No sé qué cobra cada mesero»</p><h3>Cada quien con su PIN</h3><p>Cada persona entra con su PIN y trabaja en su turno. Al cerrar, se sabe qué vendió y qué entregó.</p></div>
+          <div class="card"><div class="ic">📦</div><p class="prob">«No sé cuánto me cuesta un latte»</p><h3>Costo de cada producto</h3><p>Recetas con sus ingredientes: cada venta descuenta el inventario y muestra la ganancia.</p></div>
+          <div class="card"><div class="ic">📶</div><p class="prob">«Se fue el internet y no pude vender»</p><h3>Vende sin conexión</h3><p>Las ventas se guardan en el equipo y se sincronizan solas cuando vuelve el internet.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk alt" id="recorrido">
+      <div class="wrap">
+        <p class="kicker">Recorrido</p>
+        <h2>Así se ve en tu negocio</h2>
+        <p class="lead">Toca cada pestaña. Las imágenes son de un negocio de ejemplo, «Café La Esquina». Toca una imagen para verla en grande.</p>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-p="p-venta">Vender</button>
+          <button role="tab" aria-selected="false" data-p="p-mesas">Mesas y meseros</button>
+          <button role="tab" aria-selected="false" data-p="p-caja">Caja</button>
+          <button role="tab" aria-selected="false" data-p="p-inv">Inventario y costos</button>
+          <button role="tab" aria-selected="false" data-p="p-dueno">Control del dueño</button>
+        </div>
+
+        <div class="panel tour on" id="p-venta" role="tabpanel">
+          <figure><img src="img/venta.jpg" alt="Pantalla de venta" /><figcaption>Venta en mostrador desde el PC de la caja</figcaption></figure>
+          <div>
+            <h3>Vender en segundos</h3>
+            <ul>
+              <li>Productos por categoría, buscador y lector de código de barras.</li>
+              <li>Efectivo con cálculo del vuelto, tarjeta, Nequi, Daviplata, transferencia o pago dividido.</li>
+              <li>Propina sugerida o personalizada.</li>
+              <li>Comprobante impreso (58 mm, 80 mm, carta o A4) o compartido en PDF.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel tour" id="p-mesas" role="tabpanel">
+          <figure><img src="img/mesas.jpg" alt="Mesas" /><figcaption>Mesas abiertas con su consumo</figcaption></figure>
+          <div>
+            <h3>Mesas y meseros, conectados</h3>
+            <ul>
+              <li>El mesero toma el pedido en su celular y la mesa se ve en la caja al instante.</li>
+              <li>Abonos, mover la cuenta a otra mesa y cobrar cuando el cliente pida.</li>
+              <li>Si lo prefieres, el mesero envía la cuenta y solo la caja cobra.</li>
+              <li>Turnos por persona, con su resumen al cerrar.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel tour" id="p-caja" role="tabpanel">
+          <figure><img src="img/caja.jpg" alt="Caja" /><figcaption>La caja del día, con ventas y movimientos</figcaption></figure>
+          <div>
+            <h3>Una caja que cuadra</h3>
+            <ul>
+              <li>Apertura con base, entradas y salidas de dinero con su motivo.</li>
+              <li>Arqueos parciales y corte X sin cerrar la caja.</li>
+              <li>Cierre por denominaciones con reporte Z impreso.</li>
+              <li>Cuadre diario y exportación a Excel para tu contador.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel tour" id="p-inv" role="tabpanel">
+          <figure><img src="img/receta.jpg" alt="Receta de un producto" /><figcaption>La receta de un producto, con su costo</figcaption></figure>
+          <div>
+            <h3>Sabe cuánto ganas en cada venta</h3>
+            <ul>
+              <li>Materia prima, insumos y preparaciones, con sus unidades.</li>
+              <li>Recetas por producto: cada venta descuenta lo que gastó.</li>
+              <li>Compras, mermas y conteos; aviso cuando algo se está acabando.</li>
+              <li>Reportes de consumo, costo y ganancia bruta.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel tour" id="p-dueno" role="tabpanel">
+          <figure><img src="img/ajustes_permisos.jpg" alt="Permisos del segundo PC Main" /><figcaption>El dueño decide qué puede hacer el administrador</figcaption></figure>
+          <div>
+            <h3>Tú tienes el control</h3>
+            <ul>
+              <li>Tú autorizas cada equipo; si uno se pierde, lo bloqueas al instante.</li>
+              <li>Un segundo PC para tu administrador, con los permisos que tú elijas.</li>
+              <li>Las acciones delicadas piden contraseña y quedan registradas: quién, qué y cuándo.</li>
+              <li>Historial completo, anulaciones con motivo y respaldos cuando quieras.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk" id="perfiles">
+      <div class="wrap">
+        <p class="kicker">Se adapta a ti</p>
+        <h2>Para el negocio que tienes hoy</h2>
+        <p class="lead">Se configura en minutos con un asistente. Puedes cambiar de forma de trabajo cuando crezcas.</p>
+        <div class="grid g2">
+          <div class="card profile">
+            <span class="tag">Negocio pequeño · 2 a 4 personas</span>
+            <h3>Todos venden, todo simple</h3>
+            <ul>
+              <li>Cada equipo cobra directamente.</li>
+              <li>Turnos opcionales.</li>
+              <li>El dinero entra a la caja sin pasos extra.</li>
+            </ul>
+          </div>
+          <div class="card profile">
+            <span class="tag">Negocio con meseros</span>
+            <h3>Más control, sin frenar el servicio</h3>
+            <ul>
+              <li>Los meseros toman pedidos y envían la cuenta a la caja.</li>
+              <li>Turnos obligatorios aprobados por la caja.</li>
+              <li>Entrega del dinero a la caja confirmada y registrada.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk alt" id="tranquilidad">
+      <div class="wrap">
+        <p class="kicker">Tranquilidad</p>
+        <h2>Tu información, segura y siempre disponible</h2>
+        <p class="lead">Pensado para que un mal día (sin internet, un celular perdido, un error de un empleado) no te cueste el negocio.</p>
+        <div class="grid g3">
+          <div class="card"><div class="ic">📶</div><h3>Sin internet, sin pausa</h3><p>Sigues vendiendo; todo se sincroniza al volver la conexión, sin ventas duplicadas.</p></div>
+          <div class="card"><div class="ic">🔐</div><h3>Acceso con PIN</h3><p>Cada persona entra con su PIN y el equipo se bloquea solo si nadie lo usa.</p></div>
+          <div class="card"><div class="ic">📝</div><h3>Todo queda registrado</h3><p>Anulaciones, correcciones, cierres y cambios guardan quién los hizo y cuándo.</p></div>
+          <div class="card"><div class="ic">📱</div><h3>Equipo perdido, equipo bloqueado</h3><p>Lo reportas y deja de funcionar; sus datos se borran al conectarse.</p></div>
+          <div class="card"><div class="ic">👥</div><h3>Permisos para tu equipo</h3><p>Tú decides qué puede hacer tu administrador y qué no.</p></div>
+          <div class="card"><div class="ic">💾</div><h3>Respaldos y Excel</h3><p>Descarga tu información completa cuando quieras.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk" id="empezar">
+      <div class="wrap">
+        <p class="kicker">Cómo empezar</p>
+        <h2>Listo en tres pasos</h2>
+        <p class="lead">Sin instalar programas complicados: se abre desde el navegador y se instala como una app.</p>
+        <div class="grid g3 steps">
+          <div class="card step"><h3>Te activamos</h3><p>Preparamos tu negocio y te enviamos un link de activación.</p></div>
+          <div class="card step"><h3>Instalas</h3><p>Abres el link en el PC de la caja y en los celulares o tablets de tu equipo.</p></div>
+          <div class="card step"><h3>Empiezas a vender</h3><p>Autorizas los equipos, cargas tus productos (o los importas desde Excel) y listo.</p></div>
+        </div>
+        <div class="card" style="margin-top: 18px">
+          <h3 style="margin-top: 0">Lo que necesitas</h3>
+          <p>Un PC o tablet para la caja y, si quieres, los celulares de tu equipo (Chrome, Edge o Safari actualizados). Opcionales: impresora térmica de 58 u 80 mm y lector de código de barras. Internet para sincronizar, aunque puedes seguir vendiendo sin él.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk" id="precio" style="padding-top: 0">
+      <div class="wrap">
+        <div class="price">
+          <div>
+            <p class="kicker" style="color: #f0c08f">Precio</p>
+            <h2>Un plan a la medida de tu negocio</h2>
+            <p>El precio depende de cuántos equipos vas a usar. Incluye:</p>
+            <ul>
+              <li>Activación y configuración inicial.</li>
+              <li>Actualizaciones de la app.</li>
+              <li>Soporte por WhatsApp y correo.</li>
+            </ul>
+          </div>
+          <div class="box">
+            <p class="big">Consultar precio</p>
+            <p>Escríbenos y te enviamos una propuesta.</p>
+            <a class="btn wa js-wa" href="#" target="_blank" rel="noopener" style="margin-top: 8px">💬 Consultar por WhatsApp</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blk alt" id="preguntas">
+      <div class="wrap" style="max-width: 860px">
+        <p class="kicker">Preguntas frecuentes</p>
+        <h2>Lo que suelen preguntarnos</h2>
+        <details class="faq"><summary>¿Qué pasa si se va el internet?</summary><p>Sigues vendiendo normalmente. Las ventas quedan guardadas en el equipo y se envían solas cuando vuelve la conexión, sin duplicarse.</p></details>
+        <details class="faq"><summary>¿Qué equipos necesito?</summary><p>Un PC o tablet para la caja y, si quieres, celulares o tablets para los meseros, con un navegador actualizado (Chrome, Edge o Safari). La impresora térmica y el lector de código de barras son opcionales.</p></details>
+        <details class="faq"><summary>¿Sirve como factura electrónica?</summary><p>No. Bullet POS entrega un comprobante de venta, pero no reemplaza la factura electrónica de la DIAN. Si tu negocio está obligado a facturar electrónicamente, debes hacerlo con un proveedor autorizado.</p></details>
+        <details class="faq"><summary>¿Cuántos meseros o equipos puedo tener?</summary><p>Los que necesites según tu plan. Además del PC de la caja, puedes tener un segundo PC para tu administrador.</p></details>
+        <details class="faq"><summary>¿Puedo cargar mis productos desde Excel?</summary><p>Sí. Puedes importar tu lista de productos desde Excel, o crearlos uno por uno.</p></details>
+        <details class="faq"><summary>¿Qué pasa si un empleado pierde el celular?</summary><p>Lo reportas como perdido desde la caja: el celular deja de funcionar y sus datos se borran al conectarse.</p></details>
+        <details class="faq"><summary>¿Puedo verlo funcionando antes?</summary><p>Sí. Escríbenos por WhatsApp y te hacemos una demostración.</p></details>
+      </div>
+    </section>
+
+    <section class="blk final">
+      <div class="wrap">
+        <h2>¿Lo vemos funcionando en tu negocio?</h2>
+        <p class="lead">Cuéntanos cómo trabajas y te mostramos cómo se vería Bullet POS para ti.</p>
+        <a class="btn wa js-wa" href="#" target="_blank" rel="noopener">💬 Escribir por WhatsApp · 302 412 3271</a>
+      </div>
+    </section>
+
+    <footer>Bullet POS · © 2025-2026 thebulletes-web. Todos los derechos reservados. · Contacto: WhatsApp 302 412 3271</footer>
+    <a class="btn wa fab js-wa" href="#" target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">💬 WhatsApp</a>
+    <div id="lb" onclick="this.classList.remove('show')"><img alt="" /></div>
+
+    <script>
+      // Enlace de WhatsApp (Colombia +57) con un mensaje inicial.
+      var WA = "https://wa.me/573024123271?text=" + encodeURIComponent("Hola, quiero conocer Bullet POS para mi negocio.");
+      document.querySelectorAll(".js-wa").forEach(function (a) { a.href = WA; });
+      document.querySelectorAll(".bar .btn .m").forEach(function (s) { s.style.display = "none"; });
+      if (matchMedia("(max-width: 760px)").matches) document.querySelectorAll(".bar .btn .m").forEach(function (s) { s.style.display = ""; });
+      // Pestañas del recorrido.
+      var tabs = document.querySelectorAll(".tabs button");
+      tabs.forEach(function (b) {
+        b.addEventListener("click", function () {
+          tabs.forEach(function (x) { x.setAttribute("aria-selected", x === b ? "true" : "false"); });
+          document.querySelectorAll(".panel").forEach(function (p) { p.classList.toggle("on", p.id === b.dataset.p); });
+        });
+      });
+      // Imagen en grande.
+      document.querySelectorAll(".tour img, .shots img").forEach(function (img) {
+        img.addEventListener("click", function () {
+          var lb = document.getElementById("lb");
+          lb.querySelector("img").src = img.src;
+          lb.querySelector("img").alt = img.alt;
+          lb.classList.add("show");
+        });
+      });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") document.getElementById("lb").classList.remove("show"); });
+    </script>
+  </body>
+</html>

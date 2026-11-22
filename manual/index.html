@@ -1,0 +1,592 @@
+<!doctype html>
+<!-- Bullet POS · Copyright (c) 2025-2026 thebulletes-web. Todos los derechos reservados. -->
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Manual de usuario · Bullet POS</title>
+    <meta name="description" content="Manual de usuario de Bullet POS: cómo vender, atender mesas, manejar la caja, los turnos, el inventario y los ajustes." />
+    <style>
+      :root {
+        --ink: #20312d;
+        --muted: #66756f;
+        --green: #173c35;
+        --green2: #28584d;
+        --cream: #f5f3ed;
+        --paper: #fffefa;
+        --line: #e4e2d8;
+        --orange: #d98245;
+        --red: #b94b42;
+        --soft: #eef3ef;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body { margin: 0; background: var(--cream); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      a { color: var(--green2); }
+      header.top { position: sticky; top: 0; z-index: 20; background: var(--green); color: #fff; display: flex; align-items: center; gap: 14px; padding: 10px 18px; box-shadow: 0 4px 18px #0002; }
+      .brand { font-weight: 900; letter-spacing: 0.02em; font-size: 19px; white-space: nowrap; }
+      .brand span { color: #e9b07d; }
+      .top .search { flex: 1; max-width: 520px; margin-left: auto; position: relative; }
+      .top input { width: 100%; border: 0; border-radius: 999px; padding: 10px 16px 10px 38px; font: inherit; font-size: 15px; outline: none; }
+      .top .search:before { content: "🔍"; position: absolute; left: 13px; top: 8px; font-size: 15px; }
+      .top button { border: 0; border-radius: 999px; padding: 9px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; background: #ffffff1f; color: #fff; white-space: nowrap; }
+      .top button:hover { background: #ffffff33; }
+      #menuBtn { display: none; }
+      .layout { display: grid; grid-template-columns: 270px 1fr; max-width: 1260px; margin: 0 auto; }
+      nav.side { position: sticky; top: 58px; align-self: start; height: calc(100vh - 58px); overflow: auto; padding: 22px 10px 40px 18px; }
+      nav.side a { display: block; padding: 7px 12px; border-radius: 10px; text-decoration: none; color: var(--ink); font-size: 14.5px; }
+      nav.side a:hover { background: #fff; }
+      nav.side a.on { background: var(--green); color: #fff; font-weight: 700; }
+      nav.side .grp { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 16px 12px 4px; font-weight: 800; }
+      main { padding: 24px 28px 80px; min-width: 0; }
+      .hero { background: linear-gradient(135deg, var(--green), var(--green2)); color: #fff; border-radius: 22px; padding: 30px 32px; margin-bottom: 26px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; align-items: center; }
+      .hero h1 { margin: 0 0 8px; font-size: 32px; line-height: 1.15; }
+      .hero p { margin: 0 0 14px; opacity: 0.92; }
+      .hero img { width: 100%; border-radius: 14px; box-shadow: 0 14px 40px #0006; }
+      .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+      .chip { background: #ffffff22; border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 700; }
+      section.sec { background: var(--paper); border: 1px solid var(--line); border-radius: 20px; padding: 26px 30px; margin-bottom: 20px; scroll-margin-top: 76px; }
+      section.sec h2 { margin: 0 0 4px; font-size: 25px; display: flex; gap: 10px; align-items: center; }
+      section.sec h2 .n { background: var(--soft); color: var(--green); border-radius: 10px; font-size: 15px; padding: 3px 10px; }
+      section.sec .lead { color: var(--muted); margin: 0 0 14px; }
+      h3 { margin: 22px 0 6px; font-size: 18px; }
+      ol, ul { padding-left: 22px; }
+      li { margin: 4px 0; }
+      .btnname { background: var(--soft); color: var(--green); border-radius: 7px; padding: 1px 7px; font-weight: 700; font-size: 0.93em; white-space: nowrap; }
+      figure { margin: 16px 0; }
+      figure img { width: 100%; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 10px 30px #20312d18; cursor: zoom-in; display: block; background: #fff; }
+      figcaption { font-size: 13.5px; color: var(--muted); margin-top: 7px; text-align: center; }
+      .phones { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px; margin: 16px 0; }
+      .phones figure { margin: 0; }
+      .phones img { border-radius: 26px; border: 7px solid #1b2522; box-shadow: 0 10px 26px #0003; }
+      .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .tip, .warn, .note { border-radius: 14px; padding: 12px 16px; margin: 14px 0; font-size: 15px; }
+      .tip { background: #edf6ef; border-left: 5px solid #3f8f63; }
+      .warn { background: #fdf3e8; border-left: 5px solid var(--orange); }
+      .note { background: #fbeceb; border-left: 5px solid var(--red); }
+      table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14.5px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
+      th { background: var(--soft); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--green); }
+      .tw { overflow-x: auto; }
+      details.faq { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 8px 0; background: #fff; }
+      details.faq summary { cursor: pointer; font-weight: 700; }
+      .empty { display: none; text-align: center; color: var(--muted); padding: 40px; }
+      mark { background: #ffe39a; border-radius: 3px; }
+      #lb { position: fixed; inset: 0; background: #0c1513e8; display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; cursor: zoom-out; }
+      #lb.show { display: flex; }
+      #lb img { max-width: 100%; max-height: 92vh; border-radius: 12px; box-shadow: 0 20px 60px #000; }
+      #lb p { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #fff; margin: 0; font-size: 14px; }
+      footer { text-align: center; color: var(--muted); font-size: 13px; padding: 20px; }
+      @media (max-width: 900px) {
+        header.top { flex-wrap: wrap; gap: 8px 10px; padding: 8px 12px; }
+        .top .search { order: 3; flex-basis: 100%; max-width: none; margin: 0; }
+        section.sec { scroll-margin-top: 120px; }
+        .layout { grid-template-columns: 1fr; }
+        nav.side { position: fixed; left: 0; top: 104px; height: calc(100vh - 104px); width: 280px; background: var(--cream); z-index: 30; transform: translateX(-105%); transition: 0.2s; box-shadow: 10px 0 30px #0003; }
+        nav.side.open { transform: none; }
+        #menuBtn { display: inline-block; }
+        main { padding: 16px 12px 60px; }
+        section.sec { padding: 20px 18px; }
+        .hero { grid-template-columns: 1fr; padding: 22px; }
+        .two { grid-template-columns: 1fr; }
+        .top .pdf { display: none; }
+        .brand { font-size: 16px; }
+      }
+      @media print {
+        header.top, nav.side, #lb, .no-print { display: none !important; }
+        .layout { display: block; }
+        body { background: #fff; font-size: 12pt; }
+        main { padding: 0; }
+        section.sec { display: block !important; border: 0; padding: 0 0 10px; break-inside: auto; }
+        section.sec h2 { break-after: avoid; }
+        figure { break-inside: avoid; }
+        figure img { box-shadow: none; max-height: 120mm; width: auto; max-width: 100%; margin: 0 auto; }
+        .phones { grid-template-columns: repeat(3, 1fr); }
+        .phones img { max-height: 110mm; }
+        .hero { background: none; color: var(--ink); padding: 0; display: block; }
+        .hero img { display: none; }
+        .chip { background: var(--soft); }
+        details.faq { break-inside: avoid; }
+        details.faq[open] summary ~ *, details.faq > * { display: block; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <button id="menuBtn" onclick="toggleMenu()" aria-label="Abrir el menú">☰ Menú</button>
+      <div class="brand">BULLET <span>POS</span> · Manual</div>
+      <div class="search"><input id="q" type="search" placeholder="Buscar en el manual: caja, turno, PIN, mesa…" oninput="filter(this.value)" aria-label="Buscar en el manual" /></div>
+      <button class="pdf" onclick="printPdf()">⬇ Guardar como PDF</button>
+    </header>
+    <div class="layout">
+      <nav class="side" id="side">
+        <div class="grp">Empezar</div>
+        <a href="#intro">Bienvenida</a>
+        <a href="#conceptos">1. Conceptos básicos</a>
+        <a href="#inicio">2. Primeros pasos</a>
+        <a href="#pantalla">3. La pantalla principal</a>
+        <a href="#pin">4. PIN y bloqueo</a>
+        <div class="grp">Día a día</div>
+        <a href="#turnos">5. Turnos</a>
+        <a href="#venta">6. Vender</a>
+        <a href="#comprobantes">7. Comprobantes</a>
+        <a href="#mesas">8. Mesas</a>
+        <a href="#solicitudes">9. Solicitudes de cobro</a>
+        <a href="#caja">10. Caja</a>
+        <a href="#historial">11. Historial</a>
+        <div class="grp">Administración</div>
+        <a href="#productos">12. Productos</a>
+        <a href="#inventario">13. Inventario y costos</a>
+        <a href="#ajustes">14. Ajustes</a>
+        <div class="grp">Ayuda</div>
+        <a href="#offline">15. Sin internet</a>
+        <a href="#seguridad">16. Buenas prácticas</a>
+        <a href="#faq">17. Preguntas frecuentes</a>
+        <a href="#glosario">18. Glosario</a>
+      </nav>
+      <main id="main">
+        <div class="empty" id="empty">No encontramos nada con esa búsqueda. Prueba con otra palabra (por ejemplo: «caja», «PIN», «turno»).</div>
+
+        <section class="sec" id="intro">
+          <div class="hero">
+            <div>
+              <h1>Manual de usuario de Bullet POS</h1>
+              <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
+              <div class="chips"><span class="chip">Versión 2.7.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+            </div>
+            <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
+          </div>
+          <div class="tip">Las imágenes son de un negocio de ejemplo, «Café La Esquina». En tu negocio verás tus productos y tus datos.</div>
+          <p><b>Soporte:</b> thebulletes@gmail.com, o desde la app: <span class="btnname">Ajustes → Ayuda y app → Reportar un problema</span>.</p>
+        </section>
+
+        <section class="sec" id="conceptos">
+          <h2><span class="n">1</span> Conceptos básicos</h2>
+          <p class="lead">Lo que conviene entender antes de empezar.</p>
+          <div class="tw"><table>
+            <tr><th>Concepto</th><th>Qué es</th></tr>
+            <tr><td><b>PC Main</b></td><td>El equipo del administrador, normalmente la caja principal. Administra productos, precios, caja, personal, equipos y ajustes. Puede haber <b>hasta 2</b>.</td></tr>
+            <tr><td><b>Equipo secundario</b></td><td>Celular o tablet del personal. Vende y atiende mesas según los permisos que le dé el PC Main. No ve la pestaña Ajustes.</td></tr>
+            <tr><td><b>PIN</b></td><td>Número de 4 a 6 dígitos de cada persona. Con él entra y quedan a su nombre sus ventas y su turno.</td></tr>
+            <tr><td><b>Contraseña administrativa</b></td><td>Clave del negocio para lo delicado: cerrar caja, anular, autorizar equipos, cambiar la política. <b>Solo la conoce el dueño.</b></td></tr>
+            <tr><td><b>Licencia</b></td><td>Permite vender mientras está vigente. Si vence, puedes consultar el historial, sacar respaldos y Excel, y cerrar caja, pero no hacer ventas nuevas.</td></tr>
+          </table></div>
+        </section>
+
+        <section class="sec" id="inicio">
+          <h2><span class="n">2</span> Primeros pasos</h2>
+          <p class="lead">Instalar la app, activar el equipo y dejar el negocio listo.</p>
+          <h3>2.1 Instalar y activar el equipo</h3>
+          <ol>
+            <li>Abre el <b>link de activación</b> que te envió el proveedor. En iPhone, ábrelo en <b>Safari</b>.</li>
+            <li>Acepta <span class="btnname">Activar este equipo para…</span></li>
+            <li>Instala la app: en PC o Android pulsa <span class="btnname">Instalar Bullet POS</span>; en iPhone sigue los pasos de Compartir ⬆ → «Agregar a inicio».</li>
+            <li>Abre Bullet POS desde el ícono. El equipo espera hasta que el PC Main lo autorice.</li>
+          </ol>
+          <div class="phones">
+            <figure><img src="img/m_instalar.jpg" alt="Pantalla para instalar la app" /><figcaption>Instalar la app</figcaption></figure>
+            <figure><img src="img/m_activar.jpg" alt="Pantalla para activar el equipo" /><figcaption>Si se abre sin link, pide el código</figcaption></figure>
+            <figure><img src="img/m_pendiente.jpg" alt="Equipo esperando autorización" /><figcaption>Esperando que el PC Main lo autorice</figcaption></figure>
+          </div>
+          <div class="warn">Si ves «Activa este equipo», pega el link o el código de tu negocio. <b>No elijas otro negocio.</b></div>
+          <h3>2.2 El primer PC Main</h3>
+          <ol>
+            <li>Con el equipo autorizado aparece <span class="btnname">Empezar desde cero</span> (o <span class="btnname">Restaurar un respaldo</span> si vienes de otro equipo).</li>
+            <li><span class="btnname">Ajustes → Equipos y personal → Configurar este equipo como Main</span> con la contraseña inicial que te dio el proveedor.</li>
+            <li>Crea tu PIN con <span class="btnname">Crear mi PIN</span>.</li>
+            <li>Sigue el <b>asistente</b>: datos del negocio, tu contraseña administrativa (anótala en un lugar seguro), forma de trabajo, productos y caja.</li>
+          </ol>
+          <h3>2.3 Sumar equipos</h3>
+          <ol>
+            <li>Abre el mismo link de activación en cada celular o tablet e instala la app.</li>
+            <li>En el PC Main: <span class="btnname">Ajustes → Equipos y personal → Dispositivos → Autorizar</span>. Para reconocer el equipo, compara el identificador que muestra su pantalla de espera.</li>
+            <li>Cada persona crea su PIN la primera vez.</li>
+          </ol>
+          <h3>2.4 Segundo PC Main (opcional)</h3>
+          <ol>
+            <li>Autorízalo como equipo normal.</li>
+            <li>En el PC Main: <span class="btnname">Autorizar segundo Main</span>. Sale un código como <b>SEFQ-FM2Z</b>, que dura 10 minutos.</li>
+            <li>En el otro equipo, toca el indicador de sincronización de arriba → <span class="btnname">Vincular como segundo PC Main</span>, escribe el código y pulsa Vincular.</li>
+            <li><b>Permisos (2.7.0):</b> el primer PC Main es el <b>Main principal (dueño)</b>. En Ajustes → Equipos y personal abre <span class="btnname">Permisos de …</span>, elige qué puede hacer el segundo (o usa <span class="btnname">Administrador (recomendado)</span>) y pulsa <span class="btnname">Guardar permisos</span>. Vender, cobrar, mesas y ver el historial siempre están permitidos.</li>
+          </ol>
+        </section>
+
+        <section class="sec" id="pantalla">
+          <h2><span class="n">3</span> La pantalla principal</h2>
+          <p class="lead">Pestañas arriba, contenido en el centro y la orden actual a la derecha (abajo en el celular).</p>
+          <figure><img src="img/venta.jpg" alt="Pantalla principal en el PC Main" /><figcaption>PC Main: pestañas, productos y la orden actual</figcaption></figure>
+          <div class="tw"><table>
+            <tr><th>Pestaña</th><th>Para qué sirve</th><th>Quién la ve</th></tr>
+            <tr><td>Venta</td><td>Vender en mostrador y cobrar</td><td>Todos</td></tr>
+            <tr><td>Mesas</td><td>Atender mesas y cobrar cuentas</td><td>Todos</td></tr>
+            <tr><td>Productos</td><td>Catálogo y precios</td><td>PC Main</td></tr>
+            <tr><td>Inventario</td><td>Materia prima, recetas y costos</td><td>PC Main</td></tr>
+            <tr><td>Historial</td><td>Ventas, anulaciones y archivos</td><td>Todos (el secundario ve solo las suyas)</td></tr>
+            <tr><td>Caja</td><td>Abrir, operar, cerrar y cuadrar la caja; turnos</td><td>PC Main</td></tr>
+            <tr><td>Ajustes</td><td>Negocio, equipos, personal y seguridad</td><td>PC Main</td></tr>
+          </table></div>
+          <h3>Indicadores de arriba</h3>
+          <ul>
+            <li><b>Sincronización:</b> el estado de la conexión. Tócalo para ver el detalle de lo pendiente y de los errores.</li>
+            <li><b>Último respaldo:</b> hace cuánto se hizo el último respaldo; se pone en rojo si hace mucho.</li>
+            <li><b>Turno:</b> quién tiene el turno abierto y desde cuándo. Tócalo para iniciarlo o cerrarlo.</li>
+            <li><b>Avisos del PC Main:</b> solicitudes de cobro, turnos por aprobar y ventas por revisar.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="pin">
+          <h2><span class="n">4</span> PIN y bloqueo del equipo</h2>
+          <p class="lead">Cada persona entra con su PIN; el equipo se bloquea solo si nadie lo usa.</p>
+          <div class="two">
+            <figure><img src="img/bloqueo.jpg" alt="Pantalla de bloqueo en el PC Main" /><figcaption>Bloqueo en el PC Main</figcaption></figure>
+            <div>
+              <ul>
+                <li>Escribe tu PIN y la app reconoce quién eres.</li>
+                <li>Tras unos minutos sin uso, el equipo se bloquea. El PC Main también.</li>
+                <li>En el PC Main solo entra un PIN de administración, o <span class="btnname">Usar contraseña administrativa</span>.</li>
+                <li>Con un turno abierto, solo entra su dueño o un administrador.</li>
+                <li>Tras 5 PIN equivocados hay que esperar 60 segundos.</li>
+                <li>Si el PIN se cambió hace poco en otro equipo, con internet la app lo comprueba en el servidor antes de decir «PIN incorrecto»; el primer intento puede tardar unos segundos.</li>
+                <li>¿Olvidaste tu PIN? Un administrador lo cambia en <span class="btnname">Personal y PIN → Restablecer PIN</span>.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phones"><figure><img src="img/m_pin.jpg" alt="Bloqueo con PIN en el celular" /><figcaption>Bloqueo en el celular</figcaption></figure></div>
+        </section>
+
+        <section class="sec" id="turnos">
+          <h2><span class="n">5</span> Turnos</h2>
+          <p class="lead">El turno agrupa las ventas de una persona en un equipo, desde que empieza hasta que termina.</p>
+          <h3>Iniciar turno</h3>
+          <ol>
+            <li>Toca el indicador de turno o <span class="btnname">Iniciar turno</span>.</li>
+            <li>Escribe tu PIN y, si quieres, una observación.</li>
+            <li>Si el negocio pide aprobación, el botón dice <span class="btnname">Pedir inicio de turno</span>. El equipo espera al PC Main, y el tiempo del turno cuenta desde que lo aprueba. Necesita internet.</li>
+          </ol>
+          <div class="phones">
+            <figure><img src="img/m_iniciar_turno.jpg" alt="Iniciar turno con PIN" /><figcaption>Iniciar turno con PIN</figcaption></figure>
+            <figure><img src="img/m_esperando.jpg" alt="Esperando aprobación del turno" /><figcaption>Esperando la aprobación del PC Main</figcaption></figure>
+            <figure><img src="img/m_fin_turno.jpg" alt="Resumen al cerrar el turno" /><figcaption>Al cerrar: resumen, ventas y PDF</figcaption></figure>
+          </div>
+          <h3>Cerrar turno</h3>
+          <ol>
+            <li>Indicador de turno → <span class="btnname">Cerrar turno</span>.</li>
+            <li>Revisa el resumen, escribe el efectivo que entregas y las observaciones.</li>
+            <li>El equipo queda bloqueado con el resumen. Desde ahí: <span class="btnname">Guardar PDF</span>, <span class="btnname">Imprimir</span> o iniciar un nuevo turno para la siguiente persona.</li>
+          </ol>
+          <h3>En el PC Main</h3>
+          <figure><img src="img/turnos.jpg" alt="Turnos en el PC Main" /><figcaption>Caja → Turnos de meseros: turnos abiertos y cerrados</figcaption></figure>
+          <ul>
+            <li><b>Aprobar o rechazar</b> los turnos que piden los meseros (aparece un aviso arriba).</li>
+            <li><b>Cerrar un turno administrativamente</b> si el equipo se apagó, se perdió o se quedó sin batería: pide la contraseña y un motivo. También se puede desde el reinicio y al reportar un equipo perdido.</li>
+            <li><b>Ventas que llegan después de un cierre administrativo:</b> aparecen en «Por revisar» para <span class="btnname">Marcar como revisado</span>.</li>
+            <li><span class="btnname">Confirmar entrega</span>: registra que recibiste el efectivo del turno.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="venta">
+          <h2><span class="n">6</span> Vender (mostrador)</h2>
+          <p class="lead">Agrega productos, elige el pago y confirma.</p>
+          <figure><img src="img/venta.jpg" alt="Venta en el PC Main" /><figcaption>Orden con propina sugerida, pago en efectivo y vuelto calculado</figcaption></figure>
+          <ol>
+            <li><b>Agrega productos</b> tocándolos. Filtra por categoría o usa el buscador.</li>
+            <li><b>Lector de código de barras</b> (opcional): escanea sin el cursor en ningún campo y el producto entra solo.</li>
+            <li><b>Ajusta cantidades</b> con – / + en «Orden actual».</li>
+            <li><b>Propina:</b> marca la sugerida (10 %) o escribe una personalizada.</li>
+            <li><b>Método de pago:</b> Efectivo, Tarjeta, Nequi, Daviplata o Transferencia. En efectivo escribe con cuánto paga, o pulsa <span class="btnname">Exacto</span>, y la app calcula el vuelto.</li>
+            <li><b>Dividir el pago</b> (efectivo más otro medio): marca la casilla.</li>
+            <li>Pulsa <span class="btnname">Confirmar venta</span>.</li>
+          </ol>
+          <div class="phones">
+            <figure><img src="img/m_venta.jpg" alt="Venta en el celular" /><figcaption>Productos en el celular</figcaption></figure>
+            <figure><img src="img/m_carrito.jpg" alt="Orden y cobro en el celular" /><figcaption>Orden y cobro en el celular</figcaption></figure>
+          </div>
+          <div class="tip">Para vender hace falta una <b>caja abierta</b>. Si los turnos son obligatorios, también un <b>turno abierto</b>. Si el equipo no tiene «Cobro directo», el botón envía una <b>solicitud de cobro</b> al PC Main.</div>
+        </section>
+
+        <section class="sec" id="comprobantes">
+          <h2><span class="n">7</span> Comprobantes</h2>
+          <div class="two">
+            <figure><img src="img/comprobante.jpg" alt="Comprobante de venta" /><figcaption>Comprobante después de cobrar</figcaption></figure>
+            <div>
+              <ul>
+                <li><span class="btnname">Imprimir</span>: ticket de 58 mm, 80 mm, hoja carta o A4.</li>
+                <li><span class="btnname">Compartir PDF</span>: por WhatsApp, correo u otra app.</li>
+                <li><span class="btnname">Enviar por correo</span>: abre tu app de correo con el comprobante.</li>
+                <li>Desde el Historial puedes reimprimir el de cualquier venta.</li>
+              </ul>
+              <div class="note"><b>Importante:</b> el comprobante de Bullet POS <b>no es una factura electrónica de la DIAN</b>.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="sec" id="mesas">
+          <h2><span class="n">8</span> Mesas</h2>
+          <p class="lead">Cuentas abiertas que todos los equipos ven al instante.</p>
+          <div class="two">
+            <figure><img src="img/mesas.jpg" alt="Vista de mesas" /><figcaption>Mesas libres y ocupadas</figcaption></figure>
+            <figure><img src="img/mesa.jpg" alt="Cuenta de una mesa" /><figcaption>Cuenta de la Mesa 2</figcaption></figure>
+          </div>
+          <ol>
+            <li>Toca una mesa libre para abrirla y agrega productos.</li>
+            <li>Corrige productos mientras no se haya iniciado el cobro.</li>
+            <li><span class="btnname">Mover mesa</span>: pasa la cuenta completa a otra mesa.</li>
+            <li><span class="btnname">Abono parcial</span>: registra pagos parciales.</li>
+            <li><b>Cobrar:</b> la cuenta se congela al iniciar el cobro, y la mesa se libera solo cuando la venta queda registrada. <span class="btnname">Cancelar cobro</span> si te equivocaste.</li>
+            <li><span class="btnname">Venta rápida</span>: vuelve a la venta de mostrador.</li>
+            <li><span class="btnname">Anular cuenta</span>: solo el PC Main, con contraseña y motivo.</li>
+          </ol>
+        </section>
+
+        <section class="sec" id="solicitudes">
+          <h2><span class="n">9</span> Solicitudes de cobro</h2>
+          <p class="lead">Para equipos sin «Cobro directo», típico del perfil «Negocio con meseros».</p>
+          <ol>
+            <li>El mesero arma la orden o la mesa y pulsa cobrar. Se envía una solicitud al PC Main, con una nota opcional («paga con billete de 50.000»).</li>
+            <li>El PC Main ve <span class="btnname">Ver solicitudes</span>, la carga y cobra, o la <b>rechaza</b> con un motivo.</li>
+            <li>La venta queda a nombre del mesero, cobrada por el PC Main.</li>
+          </ol>
+        </section>
+
+        <section class="sec" id="caja">
+          <h2><span class="n">10</span> Caja</h2>
+          <p class="lead">Base, ventas por medio de pago, movimientos, arqueos y cierre.</p>
+          <figure><img src="img/caja.jpg" alt="Control de caja" /><figcaption>Control de caja: base, efectivo esperado, cobrado por medio de pago y cuadre en vivo</figcaption></figure>
+          <h3>Durante el día</h3>
+          <ul>
+            <li><span class="btnname">Abrir caja</span> con la base del día. Sin caja abierta no se vende.</li>
+            <li><b>Movimientos de caja:</b> ingresos y salidas con motivo, con contraseña.</li>
+            <li><span class="btnname">Arqueo parcial</span>: cuenta el efectivo sin cerrar.</li>
+            <li><span class="btnname">Corte X</span>: imprime el estado actual sin cerrar.</li>
+          </ul>
+          <h3>Cerrar caja</h3>
+          <div class="two">
+            <figure><img src="img/cerrar_caja.jpg" alt="Cerrar caja" /><figcaption>Cierre con conteo de efectivo</figcaption></figure>
+            <figure><img src="img/imprimir_cierre.jpg" alt="Imprimir cierre" /><figcaption>Imprimir el cierre en ticket, carta o A4</figcaption></figure>
+          </div>
+          <ol>
+            <li><span class="btnname">Cerrar caja</span> (con contraseña).</li>
+            <li>Cuenta el efectivo; puedes hacerlo por denominaciones.</li>
+            <li>Si aplica, registra el datáfono y las transferencias verificadas.</li>
+            <li>Revisa esperado, contado y diferencia; si es grande, escribe una observación.</li>
+            <li><span class="btnname">Imprimir cierre</span>: incluye base, ventas por medio de pago, propinas, cada movimiento de caja, la diferencia y la firma.</li>
+          </ol>
+          <div class="tip"><b>Cuadre diario:</b> resumen del día con ventas, anuladas, ingresos y salidas, y cierres. Se imprime y se exporta a Excel. Si una venta hecha sin internet llega después del cierre, aparece como <b>venta tardía</b> para <span class="btnname">Registrar conciliación</span>.</div>
+        </section>
+
+        <section class="sec" id="historial">
+          <h2><span class="n">11</span> Historial de ventas</h2>
+          <figure><img src="img/historial.jpg" alt="Historial de ventas" /><figcaption>Historial con el detalle de cada venta</figcaption></figure>
+          <ul>
+            <li><span class="btnname">Comprobante</span>: reimprimir o compartir.</li>
+            <li><span class="btnname">Anular</span> (PC Main): con motivo; la venta queda marcada y deja de sumar. Si descontó inventario, se devuelve.</li>
+            <li><span class="btnname">Corregir pago</span> (PC Main): cambia el medio de pago, con registro.</li>
+            <li><b>Archivar mes</b>, <b>Exportar Excel</b>, <b>Respaldo JSON</b> y <b>Restaurar JSON</b>. Haz un respaldo cada semana.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="productos">
+          <h2><span class="n">12</span> Productos</h2>
+          <div class="two">
+            <figure><img src="img/productos.jpg" alt="Lista de productos" /><figcaption>Catálogo y precios</figcaption></figure>
+            <figure><img src="img/producto.jpg" alt="Editar producto" /><figcaption>Editar un producto, con código de barras opcional</figcaption></figure>
+          </div>
+          <ul>
+            <li><b>Nuevo producto:</b> nombre, categoría, precio y, opcionalmente, el código de barras (único).</li>
+            <li><b>Importar Excel:</b> columnas Producto, Categoria, Precio_COP y Codigo_barras (opcional). Reemplaza el catálogo.</li>
+            <li>Cada tamaño es un producto aparte; las adiciones van en una categoría «Adiciones».</li>
+            <li>Los cambios llegan solos a todos los equipos.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="inventario">
+          <h2><span class="n">13</span> Inventario y costos</h2>
+          <p class="lead">Opcional. Cada venta descuenta su receta y te dice cuánto ganas de verdad.</p>
+          <figure><img src="img/inventario.jpg" alt="Inventario" /><figcaption>Elementos por tipo, stock, costo y alertas</figcaption></figure>
+          <ul>
+            <li><b>Tipos de elemento:</b> materia prima, insumos, preparaciones (lotes) y reventa (1 a 1).</li>
+            <li><b>Cada elemento tiene:</b> unidad base y unidad de compra (1 kg = 1.000 g), stock mínimo, proveedor y costo. El stock y el costo promedio se calculan solos.</li>
+            <li><b>Movimientos:</b> <span class="btnname">Compra</span>, <span class="btnname">Merma</span>, <span class="btnname">Ajuste</span>, <span class="btnname">Conteo físico</span> y <span class="btnname">Producir lote</span>. No se borran: <span class="btnname">Corregir</span> crea un movimiento contrario.</li>
+          </ul>
+          <figure><img src="img/receta.jpg" alt="Receta del producto" /><figcaption>Receta: costo, margen y cuántas unidades alcanzan</figcaption></figure>
+          <div class="tip">Cada cambio de receta crea una <b>versión nueva</b>: las ventas pasadas conservan su costo. Nunca se bloquea una venta por falta de stock; el stock queda en rojo y aparece un aviso. En <span class="btnname">Reportes</span> verás el consumo, las mermas, la ganancia bruta y más, con exportación a Excel. La <span class="btnname">🧮 Calculadora</span> convierte unidades.</div>
+        </section>
+
+        <section class="sec" id="ajustes">
+          <h2><span class="n">14</span> Ajustes</h2>
+          <p class="lead">Solo en el PC Main, en 5 secciones con resumen.</p>
+          <figure><img src="img/ajustes.jpg" alt="Ajustes" /><figcaption>Las 5 secciones de Ajustes</figcaption></figure>
+          <h3>🏪 Negocio</h3>
+          <p>Los datos del comprobante (nombre, NIT, dirección, teléfono), la licencia y el negocio al que está activado el equipo, con el link para otro equipo.</p>
+          <h3>👥 Equipos y personal</h3>
+          <figure><img src="img/ajustes_equipos.jpg" alt="Equipos y personal" /><figcaption>Dispositivos, con un equipo pendiente de autorizar</figcaption></figure>
+          <ul>
+            <li><b>Dispositivos:</b> Autorizar, Cobro directo, Revocar (con plazo o con borrado), Reportar perdido, Eliminar y la supervisión de sincronización. Al eliminar un equipo que tiene turnos abiertos, la app lo advierte y los cierra administrativamente.</li>
+            <li><b>Personal y PIN:</b> agregar personas, restablecer PIN, desactivar.</li>
+            <li><b>Administración principal:</b> cambiar la contraseña y administrar el segundo PC Main.</li>
+          </ul>
+          <h3>🔑 Permisos del segundo PC Main</h3>
+          <figure><img src="img/ajustes_permisos.jpg" alt="Permisos del segundo PC Main" /><figcaption>El Main principal elige qué puede hacer el segundo (aquí, con el perfil Administrador)</figcaption></figure>
+          <p>El primer PC Main es el <b>Main principal (dueño)</b>. Desde él se decide qué puede hacer el segundo, para que uno sea del dueño y el otro de un administrador. Abre <span class="btnname">Permisos de «…»</span>, marca o desmarca y pulsa <span class="btnname">Guardar permisos</span> (pide la contraseña).</p>
+          <ul>
+            <li><span class="btnname">Administrador (recomendado)</span>: todo lo del día a día, sin Equipos, Negocio y seguridad, Zona de riesgo ni Quitar al Main principal.</li>
+            <li><span class="btnname">Solo operación</span>: caja y turnos. <span class="btnname">Todo permitido</span>: como antes.</li>
+            <li>Vender, cobrar, mesas y ver el historial siempre están permitidos.</li>
+            <li>El cambio llega al instante y funciona también sin internet. En el segundo Main aparece arriba de Ajustes lo que no puede hacer; si toca un botón restringido, la app le avisa y no hace nada.</li>
+            <li>Mientras no guardes permisos, el segundo Main puede todo.</li>
+          </ul>
+          <div class="tip">Si se daña o se pierde el PC del dueño y el segundo Main no tiene «Quitar al Main principal», contacta a soporte: se recupera sin perder datos.</div>
+          <h3>🛡️ Seguridad y operación</h3>
+          <figure><img src="img/ajustes_seguridad.jpg" alt="Seguridad y operación" /><figcaption>Perfiles rápidos y política del negocio</figcaption></figure>
+          <div class="tw"><table>
+            <tr><th></th><th>Negocio pequeño (2 a 4 personas)</th><th>Negocio con meseros</th></tr>
+            <tr><td>Quién cobra</td><td>Todos los equipos</td><td>El PC Main (los meseros envían solicitudes)</td></tr>
+            <tr><td>Turnos</td><td>Opcionales, sin aprobación</td><td>Obligatorios y aprobados por el PC Main</td></tr>
+            <tr><td>Entrega a caja</td><td>Automática</td><td>Separada</td></tr>
+            <tr><td>Sin conexión</td><td>3 días en secundarios / 7 en el Main</td><td>8 h / 24 h</td></tr>
+            <tr><td>Bloqueo con PIN</td><td>5 min</td><td>2 min</td></tr>
+          </table></div>
+          <h3>💬 Ayuda y app</h3>
+          <div class="two">
+            <figure><img src="img/soporte.jpg" alt="Reportar un problema" /><figcaption>Reportar un problema con diagnóstico</figcaption></figure>
+            <ul>
+              <li><span class="btnname">Reportar un problema</span>: el diagnóstico se envía por WhatsApp o correo, sin ventas ni datos de clientes.</li>
+              <li><span class="btnname">Escribir a soporte</span> y <span class="btnname">Asistente de configuración</span>.</li>
+              <li>Instalar como app, y el estado de la sincronización con <span class="btnname">Reparar sincronización</span>.</li>
+            </ul>
+          </div>
+          <h3>⚠️ Opciones avanzadas y zona de riesgo</h3>
+          <ul>
+            <li><b>Correo con Gmail</b> (opcional).</li>
+            <li><b>Reinicio global de historial:</b> borra ventas, cajas y turnos en todos los equipos. Pide escribir REINICIAR y la contraseña, y permite cerrar turnos abiertos de equipos apagados. No se puede deshacer: haz un respaldo antes.</li>
+            <li><span class="btnname">Quitar Bullet POS de este equipo</span>: borra lo que la app guardó en el equipo antes de desinstalarla.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="offline">
+          <h2><span class="n">15</span> Trabajar sin internet</h2>
+          <ul>
+            <li>La app <b>sigue vendiendo sin internet</b>; las ventas se envían solas al volver la conexión, sin perderse ni duplicarse.</li>
+            <li>Cada equipo trabaja sin conexión hasta un <b>tiempo máximo</b> (ver Seguridad y operación). Después pide conectarse.</li>
+            <li>Las mesas compartidas y las solicitudes de cobro necesitan internet para verse en los otros equipos.</li>
+          </ul>
+        </section>
+
+        <section class="sec" id="seguridad">
+          <h2><span class="n">16</span> Buenas prácticas de seguridad</h2>
+          <ol>
+            <li>No compartas tu PIN: las ventas quedan a tu nombre.</li>
+            <li>La contraseña administrativa solo la conoce el dueño.</li>
+            <li>Administradores: usen un PIN de 6 dígitos.</li>
+            <li>Si un equipo se pierde, repórtalo de inmediato en Dispositivos.</li>
+            <li>Haz un respaldo JSON cada semana y guárdalo fuera del equipo.</li>
+            <li>Cierra la caja todos los días y revisa las diferencias.</li>
+            <li>Antes de desinstalar, usa «Quitar Bullet POS de este equipo».</li>
+            <li>No compartas el link de activación en grupos ni redes.</li>
+          </ol>
+        </section>
+
+        <section class="sec" id="faq">
+          <h2><span class="n">17</span> Preguntas frecuentes</h2>
+          <details class="faq"><summary>«Este equipo aún no está autorizado»</summary><p>El PC Main debe autorizarlo en Ajustes → Dispositivos. Revisa que el equipo tenga internet.</p></details>
+          <details class="faq"><summary>No me deja vender</summary><p>Revisa que haya caja abierta, que tengas turno (si es obligatorio) y que la licencia esté vigente. El mensaje en pantalla dice qué falta.</p></details>
+          <details class="faq"><summary>Olvidé mi PIN</summary><p>Un administrador lo restablece en Ajustes → Personal y PIN → Restablecer PIN.</p></details>
+          <details class="faq"><summary>Olvidé la contraseña administrativa</summary><p>Contacta a soporte.</p></details>
+          <details class="faq"><summary>Pedí turno y no pasa nada</summary><p>El PC Main debe aprobarlo (le aparece un aviso arriba). Ambos equipos necesitan internet.</p></details>
+          <details class="faq"><summary>Un equipo se apagó con el turno abierto</summary><p>En el PC Main: Caja → Turnos → «Cerrar turno» (cierre administrativo), con motivo.</p></details>
+          <details class="faq"><summary>«N ventas llegaron después de un cierre»</summary><p>Revísalas en Caja → Turnos → «Por revisar» y márcalas como revisadas.</p></details>
+          <details class="faq"><summary>El lector de código de barras no agrega</summary><p>Que no haya un campo con el cursor activo, que el producto tenga ese código y que el lector esté en modo teclado con Enter al final.</p></details>
+          <details class="faq"><summary>Diferencia en el cierre de caja</summary><p>Revisa los movimientos de caja, las entregas pendientes y las ventas tardías, y escribe la observación.</p></details>
+          <details class="faq"><summary>«Sin licencia» o «Licencia vencida»</summary><p>Contacta a soporte para renovarla. Tus datos no se pierden.</p></details>
+          <details class="faq"><summary>Sincronización con errores</summary><p>Toca el indicador → «Revisar / reintentar». En el PC Main: Ajustes → Ayuda y app → «Reparar sincronización». Si sigue, «Reportar un problema».</p></details>
+          <details class="faq"><summary>Aparece «Equipo eliminado (…)» con un turno abierto</summary><p>Es un turno que quedó abierto de un equipo que ya se eliminó. Ciérralo con «Cerrar turno administrativamente» desde Caja → Turnos o desde el reinicio global.</p></details>
+          <details class="faq"><summary>«Este PC Main no tiene permiso para…»</summary><p>Es el segundo PC Main y el Main principal no le habilitó esa función. El dueño la habilita en Ajustes → Equipos y personal → Permisos.</p></details>
+          <details class="faq"><summary>Cambié de celular</summary><p>Instala la app en el nuevo con el link de activación y pide que lo autoricen. Al viejo, revócalo o usa «Quitar Bullet POS de este equipo».</p></details>
+        </section>
+
+        <section class="sec" id="glosario">
+          <h2><span class="n">18</span> Glosario</h2>
+          <div class="tw"><table>
+            <tr><td><b>PC Main</b></td><td>Equipo principal que administra el negocio (hasta 2).</td></tr>
+            <tr><td><b>Main principal</b></td><td>El primer PC Main (del dueño): decide los permisos del segundo.</td></tr>
+            <tr><td><b>Equipo secundario</b></td><td>Celular o tablet del personal.</td></tr>
+            <tr><td><b>PIN</b></td><td>Número de 4 a 6 dígitos que identifica a cada persona.</td></tr>
+            <tr><td><b>Contraseña administrativa</b></td><td>Clave del negocio para las acciones delicadas.</td></tr>
+            <tr><td><b>Turno</b></td><td>Periodo de trabajo de una persona en un equipo.</td></tr>
+            <tr><td><b>Base</b></td><td>Efectivo con que se abre la caja.</td></tr>
+            <tr><td><b>Corte X</b></td><td>Estado de la caja sin cerrarla.</td></tr>
+            <tr><td><b>Reporte Z</b></td><td>Cierre de caja impreso.</td></tr>
+            <tr><td><b>Arqueo</b></td><td>Conteo del efectivo para compararlo con lo esperado.</td></tr>
+            <tr><td><b>Cobro directo</b></td><td>Permiso de un equipo para cobrar sin pasar por el PC Main.</td></tr>
+            <tr><td><b>Solicitud de cobro</b></td><td>Pedido de un mesero para que el PC Main cobre.</td></tr>
+            <tr><td><b>Entrega a caja</b></td><td>Dinero que el mesero entrega y el PC Main confirma.</td></tr>
+            <tr><td><b>Link de activación</b></td><td>Enlace que conecta un equipo a su negocio.</td></tr>
+            <tr><td><b>Respaldo JSON</b></td><td>Archivo con la copia completa del negocio.</td></tr>
+            <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
+          </table></div>
+        </section>
+        <footer>Bullet POS · Manual de usuario · versión 2.7.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+      </main>
+    </div>
+    <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
+    <script>
+      const secs = [...document.querySelectorAll("section.sec")],
+        links = [...document.querySelectorAll("nav.side a")];
+      // Ampliar imágenes
+      document.querySelectorAll("figure img").forEach((img) =>
+        img.addEventListener("click", () => {
+          let lb = document.getElementById("lb");
+          lb.querySelector("img").src = img.src;
+          lb.querySelector("p").textContent = (img.closest("figure").querySelector("figcaption") || {}).textContent || img.alt;
+          lb.classList.add("show");
+        }),
+      );
+      function closeLb() {
+        document.getElementById("lb").classList.remove("show");
+      }
+      document.addEventListener("keydown", (e) => e.key === "Escape" && closeLb());
+      // Menú en el celular
+      function toggleMenu(force) {
+        let s = document.getElementById("side");
+        s.classList.toggle("open", force == null ? !s.classList.contains("open") : force);
+      }
+      links.forEach((a) => a.addEventListener("click", () => toggleMenu(false)));
+      // Sección activa en el menú
+      const obs = new IntersectionObserver(
+        (ents) =>
+          ents.forEach((e) => {
+            if (!e.isIntersecting) return;
+            links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
+          }),
+        { rootMargin: "-30% 0px -60% 0px" },
+      );
+      secs.forEach((s) => obs.observe(s));
+      // Buscador: muestra solo las secciones que contienen las palabras buscadas
+      const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const plain = secs.map((s) => norm(s.innerText || s.textContent));
+      function filter(q) {
+        let words = norm(q).split(/\s+/).filter(Boolean),
+          any = false;
+        secs.forEach((s, i) => {
+          let show = !words.length || words.every((w) => plain[i].includes(w));
+          s.style.display = show ? "" : "none";
+          if (show) any = true;
+          s.querySelectorAll("details.faq").forEach((d) => (d.open = words.length > 0 && words.every((w) => norm(d.textContent).includes(w))));
+        });
+        links.forEach((a) => {
+          let t = document.querySelector(a.getAttribute("href"));
+          a.style.display = t && t.style.display === "none" ? "none" : "";
+        });
+        document.getElementById("empty").style.display = any ? "none" : "block";
+      }
+      // PDF: se imprime todo, con las preguntas abiertas
+      function printPdf() {
+        document.getElementById("q").value = "";
+        filter("");
+        document.querySelectorAll("details.faq").forEach((d) => (d.open = true));
+        setTimeout(() => window.print(), 100);
+      }
+    </script>
+  </body>
+</html>
