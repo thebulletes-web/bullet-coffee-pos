@@ -1,5 +1,6 @@
 rules_version = '2';
-// Bullet POS 2.4.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.5.0 — Reglas de seguridad de Firestore.
+// 2.5.0: el proveedor puede autorizar el primer equipo de un negocio nuevo (vendorBootstrap).
 // 2.4.0: inventario y costos (invItems, invRecipes, invMovements).
 // 2.3.0: solicitudes de cobro (chargeRequests) y permiso «Cobro directo».
 // 2.2.0: personal con PIN (staff).
@@ -132,9 +133,15 @@ service cloud.firestore {
     }
 
     // --- Dispositivos ---
+    // 2.5.0: negocio nuevo sin PC Main: el proveedor (emisor de licencias) puede
+    // ver los equipos y autorizar el primero. En cuanto existe control/admin
+    // (hay PC Main), solo el PC Main los administra.
+    function vendorBootstrap(cafeId) {
+      return isVendor() && !exists(adminPath(cafeId));
+    }
     match /cafeterias/{cafeId}/devices/{deviceId} {
-      allow get: if signedIn() && (request.auth.uid == deviceId || isMainOrBootstrap(cafeId));
-      allow list: if isMainOrBootstrap(cafeId);
+      allow get: if signedIn() && (request.auth.uid == deviceId || isMainOrBootstrap(cafeId) || vendorBootstrap(cafeId));
+      allow list: if isMainOrBootstrap(cafeId) || vendorBootstrap(cafeId);
       // Un equipo nuevo solo puede pedir acceso (siempre inactivo).
       // 2.0.0: crear un equipo ya activo exige una licencia vigente (o ninguna).
       allow create: if (isMainOrBootstrap(cafeId)
@@ -163,7 +170,13 @@ service cloud.firestore {
         // 2.0.0: un equipo revocado o perdido solo confirma el bloqueo/borrado.
         || (signedIn() && request.auth.uid == deviceId
             && resource.data.get('active', false) == false
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lockSeenAt', 'wipedAt']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lockSeenAt', 'wipedAt']))
+        // 2.5.0: el proveedor autoriza el primer equipo de un negocio nuevo.
+        || (vendorBootstrap(cafeId)
+            && licenseOk(cafeId)
+            && request.resource.data.active == true
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['active', 'name', 'role', 'approvedAt', 'approvedBy']));
       allow delete: if isMainOrBootstrap(cafeId);
     }
 

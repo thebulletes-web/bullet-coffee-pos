@@ -1,9 +1,9 @@
 // Service worker de Bullet POS: permite abrir la app sin conexión.
 // Cambia el número de CACHE cuando publiques una versión nueva de este archivo.
-const CACHE = 'bullet-pos-v2.4.1';
+const CACHE = 'bullet-pos-v2.5.0';
 // 1.6.0: copia "shell" escrita solo al instalar. Si una escritura en tiempo de
 // ejecución se interrumpe (app cerrada en ese instante), esta copia permanece.
-const SHELL = 'bullet-pos-shell-v2.4.1';
+const SHELL = 'bullet-pos-shell-v2.5.0';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'firebase-config.js'];
 const CDN = [
   'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',

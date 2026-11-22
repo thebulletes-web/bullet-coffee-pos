@@ -2708,6 +2708,22 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script src="firebase-config.js"></script>
     <script>
+      // 2.5.0: negocio activado con un código del proveedor. Se aplica antes de
+      // que la app lea la configuración; la firma se verifica al arrancar.
+      // Sin activación se usa firebase-config.js tal cual.
+      (function () {
+        try {
+          var t = JSON.parse(localStorage.getItem("bullet_tenant_v25") || "null");
+          if (t && t.firebase && t.firebase.apiKey && t.firebase.projectId && t.cafeId) {
+            window.__defaultFirebase = { config: window.FIREBASE_CONFIG, pos: window.POS_CONFIG };
+            window.FIREBASE_CONFIG = t.firebase;
+            window.POS_CONFIG = Object.assign({}, window.POS_CONFIG || {}, { cafeId: t.cafeId });
+            window.__tenant = t;
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script>
       const KEY = "cafe_pos_v1";
       const defaults = [
         { name: "Espresso", category: "Cafés", price: 4500 },
@@ -2756,7 +2772,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.4.1",
+        APP_VERSION = "2.5.0",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -19347,6 +19363,823 @@
       };
       mountInstallUI();
       setTimeout(renderInstallBanner, 1500);
+      // ===== Bullet POS 2.5.0: varios negocios, perfil «Negocio pequeño», asistente y soporte =====
+      // 1. Activación por negocio: el proveedor genera en el emisor un código
+      //    firmado con su clave (la misma de las licencias) que trae el
+      //    proyecto de Firebase y el negocio (cafeId). Se abre como link
+      //    (…/#activar=CÓDIGO) o se pega en Ajustes. Sin código, la instalación
+      //    usa firebase-config.js como siempre (Bullet Coffee no cambia).
+      //    La configuración activada se aplica antes de arrancar (script en
+      //    del encabezado); aquí se verifica la firma y se gestiona el cambio de negocio.
+      // 2. La licencia puede atarse a proyectos de Firebase (campo «projects»):
+      //    una licencia copiada a otro proyecto no vale.
+      // 3. Negocio nuevo con Firebase vacío: «Empezar desde cero» en lugar de
+      //    quedar esperando un respaldo.
+      // 4. Perfil «Negocio pequeño» en la política (y cobro directo por defecto).
+      // 5. Asistente de primer uso en el PC Main.
+      // 6. «Reportar un problema» con diagnóstico.
+      const TENANT_KEY = "bullet_tenant_v25",
+        ONBOARD_KEY = "bullet_onboarding_v25",
+        ACT_FIELDS = ["v", "type", "cafeId", "holder", "firebase", "supportPhone", "issuedAt"],
+        FB_FIELDS = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
+      let currentTenant = window.__tenant || null,
+        recentErrors = [];
+      window.addEventListener("error", (e) => recentErrors.push(new Date().toLocaleTimeString("es-CO") + " " + String((e && e.message) || "error").slice(0, 160)) && recentErrors.splice(0, recentErrors.length - 8));
+      window.addEventListener("unhandledrejection", (e) => recentErrors.push(new Date().toLocaleTimeString("es-CO") + " " + String((e && e.reason && (e.reason.message || e.reason)) || "rechazo").slice(0, 160)) && recentErrors.splice(0, recentErrors.length - 8));
+
+      // --- Licencia atada al proyecto de Firebase ---
+      LICENSE_FIELDS.push("projects");
+      const _sanitizeLicense250 = sanitizeLicense;
+      sanitizeLicense = function (raw) {
+        let d = _sanitizeLicense250(raw);
+        if (d.projects !== undefined) d.projects = Array.isArray(d.projects) ? d.projects.map(String).filter(Boolean) : [];
+        return d;
+      };
+      function licenseProjectOk(d) {
+        let p = d && Array.isArray(d.projects) ? d.projects : [];
+        if (!p.length || !firebaseConfigured()) return true;
+        return p.includes(String((window.FIREBASE_CONFIG || {}).projectId || ""));
+      }
+      const _licenseState250 = licenseState;
+      licenseState = function () {
+        let st = _licenseState250();
+        if (licenseDoc && !st.block && !licenseProjectOk(licenseDoc))
+          return { state: "invalid", label: "La licencia pertenece a otro proyecto de Firebase", block: true };
+        return st;
+      };
+
+      // --- Código de activación ---
+      function b64urlText(s) {
+        return new TextDecoder().decode(b64urlBytes(s));
+      }
+      function actPayload(p) {
+        let o = {};
+        ACT_FIELDS.forEach((k) => {
+          if (p[k] !== undefined && p[k] !== null && p[k] !== "") o[k] = p[k];
+        });
+        if (o.firebase) {
+          let f = {};
+          FB_FIELDS.forEach((k) => {
+            if (o.firebase[k]) f[k] = String(o.firebase[k]);
+          });
+          o.firebase = f;
+        }
+        return o;
+      }
+      async function parseActivation(code) {
+        code = String(code || "").trim();
+        let m = code.match(/#activar=([^&\s]+)/);
+        if (m) code = decodeURIComponent(m[1]);
+        let parts = code.split(".");
+        if (parts.length !== 4 || parts[0] !== "BPA1") return { ok: false, msg: "El texto no es un código de activación de Bullet POS" };
+        let p;
+        try {
+          p = actPayload(JSON.parse(b64urlText(parts[1])));
+        } catch (e) {
+          return { ok: false, msg: "El código de activación está incompleto o dañado" };
+        }
+        if (p.type !== "bullet-activation" || !p.firebase || !p.firebase.apiKey || !p.firebase.projectId || !p.firebase.appId || !/^[A-Za-z0-9][A-Za-z0-9_-]{1,60}$/.test(String(p.cafeId || "")))
+          return { ok: false, msg: "El código de activación no tiene los datos del negocio" };
+        let jwk = LICENSE_PUBLIC_KEYS[parts[2]];
+        if (!jwk || !(crypto && crypto.subtle)) return { ok: false, msg: "El código no está firmado por el proveedor de Bullet POS" };
+        try {
+          let key = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]),
+            ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, b64urlBytes(parts[3]), new TextEncoder().encode(stableStr(p)));
+          if (!ok) return { ok: false, msg: "La firma del código no corresponde al proveedor de Bullet POS" };
+        } catch (e) {
+          return { ok: false, msg: "No se pudo verificar el código de activación" };
+        }
+        return { ok: true, tenant: { ...p, keyId: parts[2], code, activatedAt: new Date().toISOString() } };
+      }
+      function tenantLabel(t) {
+        return t ? (t.holder || t.cafeId) + " · " + t.cafeId : "configuración de esta instalación (" + (((window.__defaultFirebase || {}).pos || window.POS_CONFIG || {}).cafeId || "local") + ")";
+      }
+      function sameTenant(a, b) {
+        return !!(a && b && a.cafeId === b.cafeId && a.firebase && b.firebase && a.firebase.projectId === b.firebase.projectId);
+      }
+      // ¿Este equipo ya tiene datos o identidad de un negocio?
+      async function deviceHasBusinessData() {
+        let used = false;
+        try {
+          used = !!localStorage.getItem(LAST_UID_KEY) || (data.sales || []).length > 0;
+        } catch (e) {}
+        return used;
+      }
+      async function pendingBusinessOps() {
+        try {
+          return (await BulletStore.all("outbox")).filter((o) => o.col !== "audit").length;
+        } catch (e) {
+          return 0;
+        }
+      }
+      // Cambiar de negocio: el equipo queda como nuevo (los datos locales del
+      // negocio anterior se borran; los de la nube no se tocan).
+      async function switchTenant(t) {
+        window.__tenantSwitching = true;
+        try {
+          if (syncAuth) await withTimeout(syncAuth.signOut(), 5000);
+        } catch (e) {}
+        try {
+          if (syncDb) {
+            await withTimeout(syncDb.terminate(), 5000);
+            await withTimeout(syncDb.clearPersistence(), 5000);
+          }
+        } catch (e) {}
+        window.__lsWrite = false;
+        saveSec = function () {};
+        data = { products: [], sales: [], settings: {}, tables: {} };
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          localStorage.setItem(TENANT_KEY, JSON.stringify(t));
+          // El equipo ya eligió instalar o seguir: no vuelve a la pantalla de instalación.
+          if (window.__keepInstallSkip) localStorage.setItem(INSTALL_SKIP_KEY, String(Date.now()));
+        } catch (e) {}
+        const delDb = (n) =>
+          new Promise((res) => {
+            try {
+              let r = indexedDB.deleteDatabase(n);
+              r.onsuccess = r.onerror = r.onblocked = () => res();
+            } catch (e) {
+              res();
+            }
+            setTimeout(res, 4000);
+          });
+        await delDb(V2_IDB_NAME);
+        await delDb("firebaseLocalStorageDb");
+        location.replace(location.pathname + location.search);
+      }
+      async function activateWithCode(code, fromLink) {
+        let r = await parseActivation(code);
+        if (!r.ok) {
+          alert("No se pudo activar: " + r.msg + ".");
+          return false;
+        }
+        let t = r.tenant;
+        if (sameTenant(currentTenant, t)) {
+          if (t.supportPhone !== currentTenant.supportPhone || t.holder !== currentTenant.holder) {
+            currentTenant = { ...currentTenant, holder: t.holder, supportPhone: t.supportPhone, code: t.code };
+            try {
+              localStorage.setItem(TENANT_KEY, JSON.stringify(currentTenant));
+            } catch (e) {}
+          }
+          if (fromLink) history.replaceState(null, "", location.pathname + location.search);
+          toast("Este equipo ya está activado para " + (t.holder || t.cafeId));
+          renderTenantCard();
+          return true;
+        }
+        let used = await deviceHasBusinessData();
+        if (used) {
+          let n = await pendingBusinessOps();
+          if (n) {
+            alert("Este equipo tiene " + n + " operación(es) sin enviar del negocio actual (" + tenantLabel(currentTenant) + ").\nConéctalo a internet y espera a que se sincronice antes de cambiar de negocio.");
+            return false;
+          }
+          if (
+            !confirm(
+              "Activar este equipo para «" + (t.holder || t.cafeId) + "».\n\n" +
+                "Ahora pertenece a: " + tenantLabel(currentTenant) + ".\n" +
+                "Se borrarán los datos guardados EN ESTE EQUIPO (los de la nube no se tocan) y quedará como un equipo nuevo, pendiente de autorización.\n\n¿Continuar?",
+            )
+          )
+            return false;
+          if (deviceIsMain() && !(await requireMainPassword("cambiar este equipo de negocio"))) return false;
+        } else if (!confirm("Activar este equipo para «" + (t.holder || t.cafeId) + "» (negocio «" + t.cafeId + "»)?")) return false;
+        try {
+          BulletAudit.record("tenantActivated", { from: currentTenant ? currentTenant.cafeId : V2_CAFE, to: t.cafeId, projectId: t.firebase.projectId });
+        } catch (e) {}
+        window.__keepInstallSkip = (() => {
+          try {
+            return !!localStorage.getItem(INSTALL_SKIP_KEY);
+          } catch (e) {
+            return false;
+          }
+        })();
+        await switchTenant(t);
+        return true;
+      }
+      // Link de activación (…/#activar=…): se procesa al abrir la app.
+      async function checkActivationLink() {
+        if (!/#activar=/.test(location.hash)) return;
+        let code = location.hash;
+        await activateWithCode(code, true);
+      }
+      // La configuración activada se verifica otra vez al arrancar.
+      async function reverifyTenant() {
+        if (!currentTenant || !currentTenant.code) return;
+        let r = await parseActivation(currentTenant.code);
+        if (r.ok && sameTenant(r.tenant, currentTenant)) return;
+        console.warn("Activación inválida:", r.msg);
+        currentTenant = null;
+        try {
+          localStorage.removeItem(TENANT_KEY);
+        } catch (e) {}
+        alert("La activación de este equipo no es válida (" + (r.msg || "datos alterados") + "). Pide al proveedor un código de activación nuevo.");
+        location.reload();
+      }
+
+      // --- Equipo nuevo instalado sin activación (p. ej. iPhone: la app
+      // instalada no comparte datos con Safari) ---
+      function appStandalone() {
+        return window.__forceStandalone === true || isStandalone();
+      }
+      function chooserNeeded() {
+        try {
+          return firebaseConfigured() && appStandalone() && !currentTenant && !localStorage.getItem(LAST_UID_KEY) && !localStorage.getItem("bullet_tenant_default_v25");
+        } catch (e) {
+          return false;
+        }
+      }
+      function showTenantChooser() {
+        gid("tenantChooser").style.display = "flex";
+        let def = ((window.__defaultFirebase || {}).pos || window.POS_CONFIG || {}).cafeId || "";
+        gid("tcDefault").textContent = "Usar el negocio de esta instalación (" + def + ")";
+        setSyncStatus("Activa este equipo", "Pega el código de activación de tu negocio");
+      }
+      function tenantChooserDefault() {
+        try {
+          localStorage.setItem("bullet_tenant_default_v25", "1");
+        } catch (e) {}
+        gid("tenantChooser").style.display = "none";
+        startCloudSync();
+      }
+      async function tenantChooserPaste() {
+        let v = gid("tcCode").value.trim();
+        if (!v && navigator.clipboard && navigator.clipboard.readText) {
+          try {
+            v = (await navigator.clipboard.readText()).trim();
+            gid("tcCode").value = v;
+          } catch (e) {}
+        }
+        if (!v) return toast("Pega el código de activación que te envió el proveedor");
+        await activateWithCode(v, false);
+      }
+
+      // --- Negocio nuevo: Firebase vacío ---
+      // Antes, el primer equipo de un negocio sin datos quedaba «Esperando
+      // respaldo inicial». Ahora se puede empezar desde cero (o restaurar).
+      let freshOffered = false;
+      function freshBusinessWaiting() {
+        return firebaseConfigured() && !syncReady && deviceApproved && isEmptyLocalDefault() && /respaldo inicial/i.test((gid("syncStatus") || {}).textContent || "");
+      }
+      function offerFreshStart() {
+        if (freshOffered || !freshBusinessWaiting()) return;
+        freshOffered = true;
+        gid("freshModal").classList.add("show");
+      }
+      function freshStart() {
+        try {
+          localStorage.setItem(MIGRATION_KEY, "1");
+        } catch (e) {}
+        gid("freshModal").classList.remove("show");
+        BulletAudit.record("businessStartedEmpty", {});
+        startCloudSync();
+      }
+      function freshRestore() {
+        gid("freshModal").classList.remove("show");
+        freshOffered = false;
+        let f = gid("backupFile");
+        if (f) f.click();
+      }
+
+      // --- Arranque: elección de negocio y negocio vacío ---
+      const _startCloudSync250 = startCloudSync;
+      startCloudSync = async function (fromRestore = false) {
+        if (window.__tenantSwitching) return;
+        if (chooserNeeded()) {
+          showTenantChooser();
+          return;
+        }
+        let r = await _startCloudSync250(fromRestore);
+        setTimeout(offerFreshStart, 50);
+        return r;
+      };
+
+      // --- Perfil de operación (política) ---
+      const POLICY_PROFILES = {
+        small: {
+          label: "Negocio pequeño (2 a 4 personas)",
+          text: "Cobran todos los equipos, turnos opcionales, sin entrega a caja separada, 3 días sin conexión en secundarios y 7 en el Main, bloqueo con PIN a los 5 minutos.",
+          values: { requireShifts: false, secondaryLeaseHours: 72, mainLeaseHours: 168, separateDelivery: false, lockMinutes: 5, directChargeDefault: true },
+        },
+        staff: {
+          label: "Negocio con meseros (control estricto)",
+          text: "Cobra el PC Main (los meseros envían solicitudes), turno obligatorio, entrega a caja separada, 8 h sin conexión en secundarios y 24 h en el Main, bloqueo con PIN a los 2 minutos.",
+          values: { requireShifts: true, secondaryLeaseHours: 8, mainLeaseHours: 24, separateDelivery: true, lockMinutes: 2, directChargeDefault: false },
+        },
+      };
+      const _posPolicy250 = posPolicy;
+      posPolicy = function () {
+        let p = _posPolicy250(),
+          raw = (data.settings && data.settings.policy) || {};
+        p.directChargeDefault = raw.directChargeDefault === true;
+        p.profile = POLICY_PROFILES[raw.profile] ? raw.profile : "custom";
+        return p;
+      };
+      function policyLabel(p) {
+        return (
+          "turnos " + (p.requireShifts ? "obligatorios" : "opcionales") +
+          ", offline secundarios " + p.secondaryLeaseHours + " h, offline Main " + p.mainLeaseHours + " h" +
+          ", observación desde " + money(p.diffNoteThreshold) +
+          ", entrega a caja " + (p.separateDelivery ? "separada (efectivo" + DELIVERY_METHODS.filter((m) => p.deliveryMethods && p.deliveryMethods[m]).map((m) => ", " + m).join("") + ")" : "automática") +
+          ", bloqueo con PIN " + (Number(p.lockMinutes) ? p.lockMinutes + " min" : "desactivado") +
+          ", equipos nuevos " + (p.directChargeDefault ? "con cobro directo" : "sin cobro directo")
+        );
+      }
+      async function savePolicyValues(after, opts) {
+        opts = opts || {};
+        let before = posPolicy();
+        if (policyLabel(before) === policyLabel(after) && (after.profile || "custom") === before.profile) {
+          if (!opts.quiet) toast("Sin cambios");
+          return true;
+        }
+        if (!opts.skipPassword && !(await requireMainPassword("cambiar la política de seguridad"))) {
+          renderPolicyForm();
+          return false;
+        }
+        let cfg = { ...after, updatedAt: Date.now(), updatedBy: currentDeviceId() };
+        data.settings.policy = cfg;
+        persist();
+        if (firebaseConfigured()) await BulletSync.enqueueDoc("control", "policy", cfg, { kind: "business" });
+        BulletAudit.record("policyChanged", { setting: "política de seguridad y operación", before: policyLabel(before), after: policyLabel(after), profile: after.profile || "custom" });
+        renderSecurityUI();
+        renderPolicyForm();
+        if (!opts.quiet) toast("Política actualizada en todos los dispositivos");
+        return true;
+      }
+      // Igual que la versión anterior, más el perfil y el cobro directo por defecto.
+      savePolicyForm = async function () {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main puede cambiar la política");
+          return;
+        }
+        let sec = Number(gid("polSecLease").value),
+          main = Number(gid("polMainLease").value),
+          thr = Number(gid("polDiffThr").value),
+          dm = {};
+        if (!LEASE_OPTIONS.includes(sec) || !LEASE_OPTIONS.includes(main) || !Number.isFinite(thr) || thr < 0) {
+          toast("Revisa los valores de la política");
+          return;
+        }
+        document.querySelectorAll("#polDeliveryMethods input[data-dm]").forEach((x) => (dm[x.dataset.dm] = !!x.checked));
+        let after = {
+          requireShifts: gid("polShifts").checked,
+          secondaryLeaseHours: sec,
+          mainLeaseHours: main,
+          diffNoteThreshold: Math.round(thr),
+          separateDelivery: gid("polDelivery").checked,
+          deliveryMethods: dm,
+          lockMinutes: gid("polLockMin") ? Number(gid("polLockMin").value) : posPolicy().lockMinutes,
+          directChargeDefault: !!(gid("polDirectDefault") && gid("polDirectDefault").checked),
+        };
+        let prof = Object.entries(POLICY_PROFILES).find(([, v]) => Object.entries(v.values).every(([k, x]) => after[k] === x));
+        after.profile = prof ? prof[0] : "custom";
+        await savePolicyValues(after);
+      };
+      function fillPolicyProfile(k) {
+        let v = POLICY_PROFILES[k].values;
+        gid("polShifts").checked = v.requireShifts;
+        gid("polSecLease").value = String(v.secondaryLeaseHours);
+        gid("polMainLease").value = String(v.mainLeaseHours);
+        gid("polDelivery").checked = v.separateDelivery;
+        if (gid("polLockMin")) gid("polLockMin").value = String(v.lockMinutes);
+        gid("polDirectDefault").checked = v.directChargeDefault;
+        gid("polProfileNote").innerHTML = "<b>" + esc(POLICY_PROFILES[k].label) + ":</b> " + esc(POLICY_PROFILES[k].text) + " Revisa y pulsa «Guardar política».";
+      }
+      async function applyPolicyProfile(k, opts) {
+        let cur = posPolicy(),
+          v = POLICY_PROFILES[k].values;
+        return savePolicyValues(
+          {
+            requireShifts: v.requireShifts,
+            secondaryLeaseHours: v.secondaryLeaseHours,
+            mainLeaseHours: v.mainLeaseHours,
+            diffNoteThreshold: cur.diffNoteThreshold,
+            separateDelivery: v.separateDelivery,
+            deliveryMethods: cur.deliveryMethods || {},
+            lockMinutes: v.lockMinutes,
+            directChargeDefault: v.directChargeDefault,
+            profile: k,
+          },
+          opts,
+        );
+      }
+      const _renderPolicyForm250 = renderPolicyForm;
+      renderPolicyForm = function () {
+        if (document.activeElement && gid("policyCard") && gid("policyCard").contains(document.activeElement)) return;
+        _renderPolicyForm250();
+        let p = posPolicy(),
+          main = deviceIsMain(),
+          c = gid("polDirectDefault");
+        if (c) {
+          c.checked = p.directChargeDefault;
+          c.disabled = !main;
+        }
+        let s = gid("polProfileState");
+        if (s) s.textContent = "Perfil actual: " + (POLICY_PROFILES[p.profile] ? POLICY_PROFILES[p.profile].label : "personalizado");
+      };
+      // Equipos nuevos: «Cobro directo» según el perfil.
+      const _authorizeDevice250 = authorizeDevice;
+      authorizeDevice = function (id, name) {
+        let n = String(id || "").trim(),
+          prev = devicesList.find((d) => d.id === n),
+          isNew = !prev || (!prev.approvedAt && prev.directCharge === undefined);
+        let r = _authorizeDevice250(id, name);
+        if (isNew && n && posPolicy().directChargeDefault && deviceIsMain() && syncReady)
+          devicesRef()
+            .doc(n)
+            .set({ directCharge: true, directChargeChangedAt: Date.now(), directChargeChangedBy: currentDeviceId() }, { merge: true })
+            .then(() => BulletAudit.record("directChargeEnabled", { deviceId: n, reason: "perfil: equipos nuevos con cobro directo" }))
+            .catch(() => {});
+        return r;
+      };
+
+      // --- Asistente de primer uso (PC Main) ---
+      const SAMPLE_PRODUCTS = [
+        ["Café tinto", "Bebidas calientes", 2500],
+        ["Café con leche", "Bebidas calientes", 4000],
+        ["Capuchino", "Bebidas calientes", 6000],
+        ["Jugo natural", "Bebidas frías", 6000],
+        ["Agua", "Bebidas frías", 2500],
+        ["Gaseosa", "Bebidas frías", 3500],
+        ["Empanada", "Comida", 3000],
+        ["Sándwich", "Comida", 9000],
+      ];
+      let wizStep = 0;
+      function onboardingDone() {
+        try {
+          return !!localStorage.getItem(ONBOARD_KEY);
+        } catch (e) {
+          return true;
+        }
+      }
+      function onboardingNeeded() {
+        if (!deviceIsMain() || onboardingDone()) return false;
+        if (firebaseConfigured() && !syncReady) return false;
+        let cfg = adminConfig || localAdmin() || {};
+        return cfg.initialPassword === true || !(data.products || []).length;
+      }
+      function maybeStartOnboarding() {
+        if (onboardingNeeded() && !gid("wizModal").classList.contains("show")) openWizard(0);
+      }
+      function openWizard(step) {
+        if (!deviceIsMain()) return toast("El asistente se usa en el PC Main");
+        wizStep = step || 0;
+        renderWizard();
+        gid("wizModal").classList.add("show");
+      }
+      function closeWizard(done) {
+        gid("wizModal").classList.remove("show");
+        if (done)
+          try {
+            localStorage.setItem(ONBOARD_KEY, new Date().toISOString());
+          } catch (e) {}
+      }
+      function wizLater() {
+        closeWizard(true);
+        toast("Puedes volver a abrir el asistente desde Ajustes");
+      }
+      const WIZ_STEPS = ["Negocio", "Contraseña", "Forma de trabajo", "Productos", "Caja"];
+      function renderWizard() {
+        let b = (data.settings && data.settings.business) || {},
+          cfg = adminConfig || localAdmin() || {},
+          body = "";
+        gid("wizSteps").innerHTML = WIZ_STEPS.map((s, i) => '<span class="wiz-dot ' + (i === wizStep ? "on" : i < wizStep ? "ok" : "") + '">' + (i + 1) + ". " + esc(s) + "</span>").join("");
+        if (wizStep === 0)
+          body =
+            '<p class="sub">Estos datos salen en los comprobantes y en los reportes.</p><div class="form-grid">' +
+            '<div class="wide"><label>Nombre del negocio</label><input id="wzName" class="field" maxlength="60" value="' + esc(b.name || (currentTenant && currentTenant.holder) || "") + '" /></div>' +
+            '<div><label>NIT o documento (opcional)</label><input id="wzNit" class="field" maxlength="30" value="' + esc(b.nit || "") + '" /></div>' +
+            '<div><label>Teléfono (opcional)</label><input id="wzPhone" class="field" maxlength="30" value="' + esc(b.phone || "") + '" /></div>' +
+            '<div class="wide"><label>Dirección (opcional)</label><input id="wzAddr" class="field" maxlength="80" value="' + esc(b.address || "") + '" /></div></div>';
+        else if (wizStep === 1)
+          body = cfg.initialPassword
+            ? '<p class="sub">La contraseña administrativa protege las acciones delicadas (cerrar caja, anular, autorizar equipos). Cambia la inicial por una propia de al menos 8 caracteres y guárdala en un lugar seguro.</p><div class="form-grid">' +
+              '<div><label>Nueva contraseña</label><input id="wzPw1" class="field" type="password" autocomplete="new-password" /></div>' +
+              '<div><label>Repítela</label><input id="wzPw2" class="field" type="password" autocomplete="new-password" /></div></div>'
+            : '<p class="sub">✅ La contraseña administrativa ya es propia. Puedes cambiarla cuando quieras en Ajustes.</p>';
+        else if (wizStep === 2)
+          body =
+            '<p class="sub">Elige cómo trabaja el negocio. Se puede cambiar después en Ajustes &gt; Seguridad y operación.</p>' +
+            Object.entries(POLICY_PROFILES)
+              .map(([k, v]) => '<label class="wiz-opt"><input type="radio" name="wzProf" value="' + k + '"' + (k === (posPolicy().profile === "staff" ? "staff" : "small") ? " checked" : "") + " /><span><b>" + esc(v.label) + "</b><br>" + esc(v.text) + "</span></label>")
+              .join("");
+        else if (wizStep === 3)
+          body =
+            '<p class="sub">' +
+            ((data.products || []).length
+              ? "El catálogo tiene " + data.products.length + " producto(s) (si es la primera vez, son los de ejemplo de la app). Cámbialos por los tuyos en la pestaña Productos, o importa tu Excel (reemplaza el catálogo)."
+              : "El catálogo está vacío. Puedes cargar una lista de ejemplo para editarla, importar tu Excel o hacerlo después en la pestaña Productos.") +
+            "</p>" +
+            '<div class="actions">' +
+            ((data.products || []).length ? "" : '<button class="btn" onclick="wizSampleProducts()">Cargar productos de ejemplo</button>') +
+            '<button class="btn" onclick="closeWizard(false);openImport()">Importar desde Excel</button><button class="btn" onclick="closeWizard(false);switchTab(\'productos\')">Ir a Productos</button></div>' +
+            '<div id="wzProdInfo" class="sub" style="margin-top:8px"></div>';
+        else
+          body =
+            '<p class="sub">Para vender necesitas una caja abierta con la base (el efectivo con que empiezas el día).</p>' +
+            (cashSession && cashSession.status === "open"
+              ? "<p>✅ Ya hay una caja abierta.</p>"
+              : '<div class="actions"><button class="btn primary" onclick="closeWizard(true);switchTab(\'caja\');openCashSession()">Abrir caja ahora</button></div>') +
+            '<p class="notice">Siguientes pasos: cada persona crea su PIN; para sumar un celular o tablet, ábrele el link de la app y autorízalo en Ajustes &gt; Dispositivos. Si algo falla, usa «Reportar un problema» en Ajustes.</p>';
+        gid("wizBody").innerHTML = body;
+        gid("wizBack").style.display = wizStep ? "" : "none";
+        gid("wizNext").textContent = wizStep === WIZ_STEPS.length - 1 ? "Terminar" : "Siguiente";
+      }
+      async function wizNext() {
+        let btn = gid("wizNext");
+        btn.disabled = true;
+        try {
+          if (wizStep === 0) {
+            let name = gid("wzName").value.trim();
+            if (!name) return toast("Escribe el nombre del negocio");
+            ["bizName", "bizNit", "bizPhone", "bizAddress"].forEach((id, i) => {
+              let el = gid(id);
+              if (el) el.value = [name, gid("wzNit").value, gid("wzPhone").value, gid("wzAddr").value][i].trim();
+            });
+            if (gid("bizNote") && data.settings.business) gid("bizNote").value = data.settings.business.note || "";
+            await saveBusinessInfo();
+          } else if (wizStep === 1 && (adminConfig || localAdmin() || {}).initialPassword) {
+            let p1 = gid("wzPw1").value,
+              p2 = gid("wzPw2").value;
+            if (p1.length < 8) return toast("Usa al menos 8 caracteres");
+            if (p1 !== p2) return toast("Las contraseñas no coinciden");
+            if (p1 === INITIAL_ADMIN_PASSWORD) return toast("Elige una contraseña distinta de la inicial");
+            if (!(await wizSetPassword(p1))) return;
+          } else if (wizStep === 2) {
+            let k = (document.querySelector('input[name="wzProf"]:checked') || {}).value || "small";
+            if (!(await applyPolicyProfile(k, { skipPassword: true, quiet: true }))) return;
+            toast("Forma de trabajo: " + POLICY_PROFILES[k].label);
+          } else if (wizStep === WIZ_STEPS.length - 1) {
+            closeWizard(true);
+            BulletAudit.record("onboardingCompleted", { products: (data.products || []).length });
+            toast("¡Listo! El negocio quedó configurado");
+            return;
+          }
+          wizStep++;
+          renderWizard();
+        } finally {
+          btn.disabled = false;
+        }
+      }
+      function wizBack() {
+        if (wizStep > 0) wizStep--;
+        renderWizard();
+      }
+      // Solo cuando la contraseña aún es la inicial (conocida): no hace falta pedirla.
+      async function wizSetPassword(p) {
+        let salt = randomSalt(),
+          hash = await deriveAdminHash(p, salt),
+          cfg = { ...(adminConfig || localAdmin() || {}), passwordSalt: salt, passwordHash: hash, initialPassword: false, updatedAt: Date.now() };
+        delete cfg.isMain;
+        if (syncReady && deviceApproved) {
+          try {
+            let remote = { ...cfg };
+            delete remote.mainDeviceIds;
+            delete remote.mainDeviceId;
+            await adminRef().set(remote, { merge: true });
+          } catch (e) {
+            toast("No se pudo guardar en Firebase. La contraseña no se cambió.");
+            return false;
+          }
+        }
+        adminConfig = cfg;
+        saveLocalAdmin({ ...cfg, isMain: true });
+        BulletAudit.record("adminPasswordChanged", { via: "asistente" });
+        renderRoleUI();
+        toast("Contraseña administrativa guardada");
+        return true;
+      }
+      function wizSampleProducts() {
+        let have = new Set((data.products || []).map((p) => p.name.toLowerCase())),
+          n = 0;
+        SAMPLE_PRODUCTS.forEach(([name, category, price]) => {
+          if (have.has(name.toLowerCase())) return;
+          let p = { id: makeId(), name, category, price, updatedAt: Date.now() };
+          data.products.push(p);
+          if (syncReady) syncProduct(p);
+          n++;
+        });
+        persist();
+        renderProducts();
+        renderProductRows();
+        if (gid("wzProdInfo")) gid("wzProdInfo").textContent = n ? n + " productos de ejemplo cargados. Edita nombres y precios en la pestaña Productos." : "Los productos de ejemplo ya estaban cargados.";
+        BulletAudit.record("sampleProductsLoaded", { count: n });
+      }
+
+      // --- Reportar un problema ---
+      function supportDiagnostic() {
+        let st = (window.BulletSync && BulletSync.stats()) || {},
+          ops = st.ops || [],
+          errs = ops.filter((o) => o.state === "error"),
+          lic = licenseState(),
+          b = (data.settings && data.settings.business) || {};
+        return [
+          "Bullet POS " + APP_VERSION + " · " + new Date().toLocaleString("es-CO"),
+          "Negocio: " + (b.name || (currentTenant && currentTenant.holder) || "—") + " (" + V2_CAFE + ")" + (firebaseConfigured() ? " · proyecto " + ((window.FIREBASE_CONFIG || {}).projectId || "—") : " · sin Firebase"),
+          "Equipo: " + (BulletSupervision.myName() || "—") + " · " + (deviceIsMain() ? "PC Main" : "secundario") + " · ID " + String(currentDeviceId()).slice(0, 10),
+          "App: " + (isStandalone() ? "instalada" : "navegador") + " · " + (navigator.onLine ? "en línea" : "sin conexión") + " · almacenamiento " + (BulletStore.mode || "—"),
+          "Sincronización: " + (syncReady ? "activa" : "inactiva") + (firebaseConfigured() ? (deviceApproved ? " · autorizado" : " · sin autorizar") : "") + " · " + ((gid("syncStatus") || {}).textContent || "").slice(0, 80),
+          "Cola: " + ops.length + " pendiente(s), " + errs.length + " con error" + (errs.length ? " · " + errs.slice(0, 3).map((o) => o.col + ": " + String(o.lastError || "").slice(0, 60)).join(" | ") : ""),
+          "Licencia: " + lic.label,
+          "Turno: " + (typeof shiftOpen === "function" && shiftOpen() ? "abierto" : "sin turno") + " · Caja: " + (cashSession && cashSession.status === "open" ? "abierta" : "cerrada"),
+          "Errores recientes: " + (recentErrors.length ? recentErrors.slice(-5).join(" | ") : "ninguno"),
+          "Navegador: " + String(navigator.userAgent || "").slice(0, 140),
+        ].join("\n");
+      }
+      function openSupport() {
+        gid("supDesc").value = "";
+        gid("supDiag").textContent = supportDiagnostic();
+        let ph = currentTenant && currentTenant.supportPhone;
+        gid("supWaLabel").textContent = ph ? "Enviar por WhatsApp al soporte" : "Enviar por WhatsApp";
+        gid("supModal").classList.add("show");
+      }
+      function supportText() {
+        let d = gid("supDesc").value.trim();
+        return "🆘 Reporte de problema · Bullet POS\n\nQué pasó: " + (d || "(sin descripción)") + "\n\n— Diagnóstico —\n" + supportDiagnostic();
+      }
+      function supportSend(via) {
+        let txt = supportText();
+        BulletAudit.record("supportReport", { via, desc: gid("supDesc").value.trim().slice(0, 200) });
+        if (via === "wa") {
+          let ph = String((currentTenant && currentTenant.supportPhone) || "").replace(/\D/g, "");
+          window.open((ph ? "https://wa.me/" + ph : "https://wa.me/") + "?text=" + encodeURIComponent(txt), "_blank");
+        } else if (via === "mail") {
+          location.href = "mailto:" + SUPPORT_EMAIL + "?subject=" + encodeURIComponent("Bullet POS · problema en " + V2_CAFE) + "&body=" + encodeURIComponent(txt);
+        } else {
+          (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
+            .then(() => toast("Reporte copiado: pégalo en el chat con soporte"))
+            .catch(() => {
+              gid("supDiag").textContent = txt;
+              toast("Selecciona el texto y cópialo");
+            });
+        }
+      }
+
+      // --- Ajustes: tarjeta del negocio activado ---
+      function renderTenantCard() {
+        let el = gid("tenantBox");
+        if (!el) return;
+        let t = currentTenant;
+        el.innerHTML = t
+          ? '<span class="pill ok">Activado</span> <b>' + esc(t.holder || t.cafeId) + "</b><br>Negocio «" + esc(t.cafeId) + "» · proyecto " + esc(t.firebase.projectId) + "<br>Activado el " + esc(fmtDT(t.activatedAt)) + (t.supportPhone ? " · soporte WhatsApp " + esc(t.supportPhone) : "")
+          : "Este equipo usa la configuración de esta instalación (" + esc(V2_CAFE) + "). Para usarlo en otro negocio, pega su código de activación.";
+        let c = gid("tenantCopyBtn");
+        if (c) c.style.display = t && t.code ? "" : "none";
+      }
+      async function tenantActivateFromCard() {
+        let v = gid("tenantCode").value.trim();
+        if (!v) return toast("Pega el código de activación");
+        await activateWithCode(v, false);
+      }
+      function tenantCopyCode() {
+        let t = currentTenant;
+        if (!t || !t.code) return;
+        let link = location.origin + location.pathname + "#activar=" + t.code;
+        (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+          .then(() => toast("Link de activación copiado"))
+          .catch(() => prompt("Copia este link de activación:", link));
+      }
+
+      // --- Interfaz ---
+      const MT_CSS = `
+      #tenantChooser{z-index:76}
+      #tenantChooser textarea{width:100%;min-height:90px;font:12px ui-monospace,monospace}
+      .wiz-steps{display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 12px}
+      .wiz-dot{font-size:11.5px;padding:4px 9px;border-radius:99px;background:#f0f1eb;color:var(--muted);font-weight:700}
+      .wiz-dot.on{background:var(--green);color:#fff}
+      .wiz-dot.ok{background:#e2efe6;color:var(--green)}
+      .wiz-opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;background:#fff;cursor:pointer}
+      .wiz-opt input{margin-top:4px}
+      #supDiag{background:#f3f2ec;border-radius:9px;padding:9px;font:11.5px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto}
+      .pol-profiles{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}`;
+      const MT_HTML = `
+    <div class="lock-screen" id="tenantChooser">
+      <div class="lock-box">
+        <div class="lock-icon">🏪</div>
+        <h2 style="color: var(--green)">Activa este equipo</h2>
+        <p class="sub">Pega el código de activación que te envió el proveedor (llega con el link de la app). En iPhone, la app instalada no comparte datos con Safari: por eso se pide aquí.</p>
+        <textarea id="tcCode" class="field" placeholder="BPA1.… o el link completo con #activar="></textarea>
+        <div class="modal-actions">
+          <button class="btn primary" onclick="tenantChooserPaste()">Activar</button
+          ><button class="btn" id="tcDefault" onclick="tenantChooserDefault()">Usar el negocio de esta instalación</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="freshModal">
+      <div class="modal">
+        <h2>Negocio nuevo</h2>
+        <p class="sub">Este negocio aún no tiene datos en la nube. Si es la primera vez que usas Bullet POS, empieza desde cero. Si vienes de otro equipo con datos, restaura su respaldo JSON.</p>
+        <div class="modal-actions">
+          <button class="btn" onclick="freshRestore()">Restaurar un respaldo</button
+          ><button class="btn primary" onclick="freshStart()">Empezar desde cero</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="wizModal">
+      <div class="modal" style="width:min(620px,100%);max-height:92vh;overflow:auto">
+        <h2>Configurar el negocio</h2>
+        <div class="wiz-steps" id="wizSteps"></div>
+        <div id="wizBody"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="wizLater()">Hacerlo después</button
+          ><button class="btn" id="wizBack" onclick="wizBack()">Atrás</button
+          ><button class="btn primary" id="wizNext" onclick="wizNext()">Siguiente</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="supModal">
+      <div class="modal" style="width:min(600px,100%);max-height:92vh;overflow:auto">
+        <h2>Reportar un problema</h2>
+        <label class="sub" for="supDesc">¿Qué pasó? (qué estabas haciendo y qué viste)</label>
+        <textarea id="supDesc" class="field" style="min-height:80px;margin:6px 0 10px" maxlength="600"></textarea>
+        <div class="sub">Diagnóstico que se adjunta (sin ventas ni datos de clientes):</div>
+        <div id="supDiag"></div>
+        <div class="modal-actions" style="flex-wrap:wrap">
+          <button class="btn" onclick="gid('supModal').classList.remove('show')">Cerrar</button
+          ><button class="btn" onclick="supportSend('copy')">Copiar</button
+          ><button class="btn" onclick="supportSend('mail')">Enviar por correo</button
+          ><button class="btn primary" onclick="supportSend('wa')" id="supWaLabel">Enviar por WhatsApp</button>
+        </div>
+      </div>
+    </div>`;
+      function mountMtUI() {
+        if (gid("wizModal")) return;
+        let st = document.createElement("style");
+        st.textContent = MT_CSS;
+        document.head.appendChild(st);
+        let tmp = document.createElement("div");
+        tmp.innerHTML = MT_HTML;
+        [...tmp.children].forEach((c) => document.body.appendChild(c));
+        // Ajustes: soporte, negocio activado y asistente.
+        let aj = gid("ajustes"),
+          top = aj && aj.querySelector(".topline");
+        if (top) {
+          let sup = document.createElement("div");
+          sup.className = "set-card";
+          sup.id = "supportCard";
+          sup.innerHTML =
+            "<h3>Soporte</h3><div class=\"sub\">¿Algo no funciona? Envía un reporte con el diagnóstico del equipo. Soporte: " + esc(SUPPORT_EMAIL) + '</div><div class="actions" style="margin-top:8px"><button class="btn primary" onclick="openSupport()">Reportar un problema</button><button class="btn" id="wizOpenBtn" onclick="openWizard(0)">Asistente de configuración</button></div>';
+          top.after(sup);
+          let ten = document.createElement("div");
+          ten.className = "set-card";
+          ten.id = "tenantCard";
+          ten.innerHTML =
+            '<h3>Negocio de este equipo</h3><div class="sub" id="tenantBox"></div>' +
+            '<details style="margin-top:8px"><summary class="sub" style="cursor:pointer">Activar con un código / cambiar de negocio</summary>' +
+            '<textarea id="tenantCode" class="field" style="min-height:70px;margin-top:6px;font:12px ui-monospace,monospace" placeholder="BPA1.… o el link con #activar="></textarea>' +
+            '<div class="actions" style="margin-top:6px"><button class="btn" onclick="tenantActivateFromCard()">Activar</button><button class="btn" id="tenantCopyBtn" onclick="tenantCopyCode()">Copiar link de activación</button></div>' +
+            '<p class="notice">Cambiar de negocio borra los datos guardados en este equipo (no los de la nube) y lo deja pendiente de autorización.</p></details>';
+          sup.after(ten);
+        }
+        // Política: perfiles rápidos y cobro directo por defecto.
+        let pc = gid("policyCard"),
+          grid = pc && pc.querySelector(".form-grid");
+        if (grid) {
+          let pr = document.createElement("div");
+          pr.innerHTML =
+            '<div class="sub" id="polProfileState"></div><div class="pol-profiles">' +
+            Object.entries(POLICY_PROFILES)
+              .map(([k, v]) => '<button class="btn small" onclick="fillPolicyProfile(\'' + k + "')\">" + esc(v.label) + "</button>")
+              .join("") +
+            '</div><div class="sub" id="polProfileNote" style="margin-top:6px"></div>';
+          grid.before(pr);
+          let dd = document.createElement("div");
+          dd.className = "wide";
+          dd.innerHTML = '<label class="tip-check"><input type="checkbox" id="polDirectDefault" /><span>Los equipos nuevos se autorizan con «Cobro directo» (cobran sin pasar por el PC Main)</span></label>';
+          grid.appendChild(dd);
+        }
+        renderTenantCard();
+      }
+      const _renderRoleUI250 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI250();
+        let w = gid("wizOpenBtn");
+        if (w) w.style.display = deviceIsMain() ? "" : "none";
+        setTimeout(maybeStartOnboarding, 800);
+      };
+      const _renderSettings250 = renderSettings;
+      renderSettings = function () {
+        let r = _renderSettings250.apply(this, arguments);
+        renderTenantCard();
+        return r;
+      };
+      // iPhone: el código se puede copiar antes de instalar (Safari y la app
+      // instalada no comparten datos).
+      const _renderInstallGate250 = renderInstallGate;
+      renderInstallGate = function () {
+        _renderInstallGate250();
+        if (!installGateOn || !currentTenant || !isIOSDevice()) return;
+        let n = gid("igNote");
+        if (n && !gid("igCopy")) {
+          n.insertAdjacentHTML("afterend", '<button class="btn" id="igCopy" onclick="tenantCopyCode()">Copiar código de activación</button><p class="sub" id="igCopyNote">Después de instalar, abre Bullet POS y pega el código cuando lo pida.</p>');
+        }
+      };
+      mountMtUI();
+      BulletStore.ready.then(() => {
+        checkActivationLink().catch((e) => console.warn("Activación:", e));
+        setTimeout(() => reverifyTenant().catch(() => {}), 2500);
+      });
       renderArchiveLog();
 
       renderProducts();

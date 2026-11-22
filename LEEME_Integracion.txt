@@ -1,6 +1,56 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.5.0 (varios negocios, perfil «Negocio pequeño», asistente y soporte)
+------------------------------------------------------------------------------
+Cambian index.html, sw.js, firestore.rules y herramientas/emisor-licencias.html.
+Bullet Coffee NO cambia: sin código de activación la app usa firebase-config.js
+como siempre. Las reglas nuevas solo agregan permisos al proveedor mientras un
+negocio no tiene PC Main; publícalas en Bullet Coffee y en cada negocio nuevo.
+
+Varios negocios con una sola app (código de activación)
+- El emisor genera, por cliente, un link …/#activar=CÓDIGO firmado con la
+  clave del proveedor. Trae el proyecto de Firebase y el negocio (cafeId).
+  Nadie puede crear uno falso ni modificarlo.
+- Al abrir el link la app pide confirmar y queda conectada a ese negocio.
+  Si el equipo tenía datos de otro negocio, se borran del equipo (no de la
+  nube) y queda como equipo nuevo. Con operaciones sin enviar, no lo permite.
+- iPhone: la app instalada no comparte datos con Safari. La pantalla de
+  instalación ofrece «Copiar código» y la app instalada lo pide al abrirla.
+- Ajustes > «Negocio de este equipo»: ver la activación, activar con un código
+  o copiar el link para otro equipo.
+- La licencia puede atarse al proyecto de Firebase («projects»): una copia de
+  la licencia en otro proyecto no vale. Solo para licencias emitidas con la
+  casilla marcada (requiere 2.5.0 en todos los equipos del negocio).
+
+Negocio nuevo (Firebase vacío)
+- Antes el primer equipo quedaba en «Esperando respaldo inicial». Ahora
+  aparece «Negocio nuevo»: «Empezar desde cero» o «Restaurar un respaldo».
+- El proveedor puede autorizar el primer equipo desde el emisor (paso 6),
+  solo mientras el negocio no tenga PC Main (reglas: vendorBootstrap).
+
+Perfil de operación (Ajustes > Seguridad y operación)
+- «Negocio pequeño (2 a 4 personas)»: cobran todos los equipos, turnos
+  opcionales, sin entrega a caja separada, 72 h / 168 h sin conexión, PIN a
+  los 5 min.
+- «Negocio con meseros (control estricto)»: cobra el PC Main, turno
+  obligatorio, entrega a caja separada, 8 h / 24 h, PIN a los 2 min.
+- Nueva casilla: equipos nuevos con «Cobro directo». Todo sigue editable y el
+  cambio pide la contraseña y queda en la auditoría.
+
+Asistente de primer uso (PC Main)
+- Se abre en un PC Main nuevo (contraseña inicial o catálogo vacío): datos del
+  negocio, contraseña propia, forma de trabajo, productos y abrir caja. Se
+  puede dejar para después y abrir desde Ajustes > Soporte.
+
+Soporte
+- Ajustes > Soporte > «Reportar un problema»: descripción + diagnóstico
+  (versión, negocio, equipo, sincronización, cola, licencia, errores; sin
+  ventas ni datos de clientes) por WhatsApp (al número del negocio si el
+  link lo trae), correo o copiar.
+
+Guía nueva: informes/Guia_Alta_Nuevo_Negocio_Bullet_POS.md (paso a paso).
+
 VERSIÓN 2.4.1 (instalar la app al vincular un equipo nuevo)
 -----------------------------------------------------------
 Cambian index.html, sw.js y manifest.webmanifest (las reglas son las de 2.4.0).
