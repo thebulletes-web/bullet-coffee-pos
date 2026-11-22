@@ -33,11 +33,12 @@ Además, la licencia indica el **negocio** (`cafeId`) y las **direcciones autori
 
 1. Abre el emisor: `https://thebulletes-web.github.io/bullet-coffee-pos/herramientas/emisor-licencias.html`.
 2. **1. Clave del proveedor:** pulsa **«Cargar clave privada guardada (.json)»** y elige tu archivo de clave privada. Si no cargas la clave, la licencia saldría sin firma y la app la rechazaría.
-3. **2. Datos de la licencia:**
+3. **2. Cliente:** elige el negocio. «Instalación principal (firebase-config.js)» es Bullet Coffee. Para un negocio nuevo, sigue la «Guía: dar de alta un negocio nuevo».
+4. **3. Datos de la licencia:**
 
    | Campo | Qué poner |
    |---|---|
-   | Negocio (cafeId) | El de `firebase-config.js`. Para Bullet Coffee: `bullet-coffee`. |
+   | Negocio (cafeId) | Se llena solo con el del cliente. Para Bullet Coffee: `bullet-coffee`. |
    | Titular | Nombre del negocio, p. ej. «Bullet Coffee». |
    | Número de licencia | Un identificador tuyo, p. ej. `BC-2026-001`. |
    | Plan | El nombre del plan contratado. |
@@ -46,13 +47,14 @@ Además, la licencia indica el **negocio** (`cafeId`) y las **direcciones autori
    | Vence el | Fecha de vencimiento. |
    | Días de gracia | Días extra después del vencimiento antes de bloquear (p. ej. 7). |
    | Estado | «Activa» (o «Suspendida» para bloquear). |
-   | Direcciones autorizadas | `https://thebulletes-web.github.io` (una por línea). **Si lo dejas vacío, sirve en cualquier dirección: no lo dejes vacío.** |
+   | Direcciones autorizadas | `https://thebulletes-web.github.io` (una por línea; ya viene puesta). **Si lo dejas vacío, sirve en cualquier dirección: no lo dejes vacío.** |
+   | Atar al proyecto de Firebase | **Marcada** para negocios nuevos: una copia en otro proyecto no vale. En Bullet Coffee déjala **desmarcada** hasta que todos sus equipos tengan la 2.5.0. |
 
-4. Pulsa **«Firmar licencia»**.
-5. **3. Publicar en Firebase:** pulsa **«Iniciar sesión con Google»** y entra con **thebulletes@gmail.com**.
-6. Pulsa **«Publicar licencia firmada»**.
-7. (Opcional) Pulsa **«Leer licencia actual»** para confirmar lo que quedó publicado.
-8. En el PC Main, ve a **Ajustes > Licencia** y comprueba el estado, el vencimiento y que diga **firma verificada**.
+5. Pulsa **«Firmar licencia»**.
+6. **4. Publicar en Firebase:** pulsa **«Iniciar sesión con Google»** y entra con **thebulletes@gmail.com**. La sesión es en el proyecto del cliente elegido.
+7. Pulsa **«Publicar licencia firmada»**.
+8. (Opcional) Pulsa **«Leer licencia actual»** para confirmar lo que quedó publicado.
+9. En el PC Main, ve a **Ajustes > Licencia** y comprueba el estado, el vencimiento y que diga **firma verificada**.
 
 > **Renovar** es lo mismo: carga la clave, cambia «Vence el», firma y publica. Los equipos reciben la renovación solos.
 
