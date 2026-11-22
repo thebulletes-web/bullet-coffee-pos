@@ -183,7 +183,12 @@
             <textarea id="origins" placeholder="https://usuario.github.io"></textarea>
           </div>
         </div>
-        <button class="primary" onclick="signLicense()">Firmar licencia</button>
+        <button class="primary" onclick="signLicense()">Firmar licencia</button
+        ><button onclick="downloadLicense()">Descargar licencia (.json)</button>
+        <div class="sub">
+          El archivo sirve para instalaciones sin Firebase: en la app, Ajustes >
+          Licencia > «Cargar licencia».
+        </div>
         <div id="signState" class="sub"></div>
         <pre id="licOut" style="display: none"></pre>
       </section>
@@ -331,6 +336,11 @@
         signed = doc;
         $("licOut").style.display = "block";
         $("licOut").textContent = JSON.stringify(doc, null, 2);
+      }
+      function downloadLicense() {
+        if (!signed) return alert("Primero firma la licencia (paso 2)");
+        if (!signed.sig) return alert("La licencia no está firmada: carga tu clave privada y vuelve a firmar");
+        download("licencia-bullet-pos-" + signed.cafeId + "-" + signed.licenseId + ".json", JSON.stringify(signed, null, 2));
       }
       let db = null,
         auth = null;

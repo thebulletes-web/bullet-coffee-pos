@@ -2758,7 +2758,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.3.2",
+        APP_VERSION = "2.3.3",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -11481,6 +11481,7 @@
         if (!l) return "";
         if (l.state === "lost") return l.wiped ? "Equipo reportado como perdido · datos locales borrados" : "Este equipo fue reportado como perdido";
         if (l.state === "clone") return "Instalación no reconocida: este equipo usa la identidad de otra instalación";
+        if (l.wiped) return "Equipo desvinculado · datos locales borrados";
         return "Este equipo fue revocado por el PC Main";
       }
       let ownDevUnsub = null;
@@ -11504,12 +11505,28 @@
         // 2.3.2: si el servidor confirma que el equipo ya no está autorizado
         // (eliminado de la lista, o desactivado sin revocación), su plazo sin
         // conexión se anula al instante: no puede seguir vendiendo localmente.
+        // 2.3.3: un equipo que ya había operado y fue eliminado de la lista se
+        // bloquea y borra sus datos locales (solo si no le queda nada por enviar).
+        const removed = () => {
+          if (!deviceIsMain()) setLock("revoked", { at: Date.now(), reason: "Eliminado de la lista de dispositivos", drainUntil: 0, wipe: true });
+        };
         if (!snap.exists) {
-          if (fromServer) revokeLease("eliminado de la lista de dispositivos");
+          if (fromServer) {
+            let was = Number(secState.lastVerifiedAt) || 0;
+            revokeLease("eliminado de la lista de dispositivos");
+            if (was) removed();
+          }
           return;
         }
         let d = snap.data() || {};
-        if (fromServer && d.active !== true && !d.lost && !d.revokedAt) revokeLease("sin autorización activa");
+        if (fromServer && d.active !== true && !d.lost && !d.revokedAt) {
+          // Al reconectarse, un equipo eliminado crea una solicitud nueva:
+          // si esa solicitud es posterior a su última autorización, fue eliminado.
+          let was = Number(secState.lastVerifiedAt) || 0,
+            fresh = was > 0 && Object.keys(d).every((k) => ["active", "requestedAt", "ua"].includes(k)) && Number(d.requestedAt) > was;
+          revokeLease("sin autorización activa");
+          if (fresh) removed();
+        }
         if (d.lost === true) {
           setLock("lost", {
             at: tsMs(d.lostAt) || Date.now(),
@@ -11534,6 +11551,7 @@
             at: tsMs(d.revokedAt) || Date.now(),
             reason: d.revokeReason || "",
             drainUntil: tsMs(d.drainUntil) || 0,
+            wipe: d.wipeOnRevoke === true,
           });
         }
         saveSec();
@@ -11593,7 +11611,9 @@
         window.__v2Drain = true;
         deviceApproved = true;
         syncReady = true;
-        BulletSync.kick("envio-pendientes");
+        // 2.3.3: al recibir el plazo, lo que había fallado se reintenta ya
+        // (sin esperar la pausa entre reintentos).
+        BulletSync.retryErrors().catch(() => BulletSync.kick("envio-pendientes"));
         BulletSupervision.report(true);
       }
       function enforceLock() {
@@ -11699,10 +11719,13 @@
         } else if (l.state === "clone") {
           txt =
             "La identidad de este equipo está registrada para otra instalación. Puede tratarse de una copia del navegador o de datos restaurados. Pide al PC Main que revise el equipo en Ajustes > Dispositivos («Reconocer instalación»).";
+        } else if (l.wiped) {
+          txt = "El PC Main desvinculó este equipo y sus datos del negocio se borraron de este dispositivo. Lo ya registrado está a salvo en Firebase.";
         } else {
           let drain = Number(l.drainUntil) > Date.now();
           txt =
             "El PC Main retiró la autorización de este equipo: ya no puede registrar ventas ni modificar mesas." +
+            (l.wipe ? " Sus datos locales se borrarán en cuanto no quede nada por enviar." : "") +
             (drain
               ? " Mientras tanto puede terminar de enviar lo que ya registró (hasta el " + fmtDT(l.drainUntil) + ")."
               : pend
@@ -11779,6 +11802,13 @@
               (pend == null ? "No hay un reporte reciente de sus ventas pendientes." : "Último reporte: " + pend + " venta(s) pendientes.") +
               "\n\nAceptar: el equipo queda bloqueado para vender, pero envía lo que ya registró (recomendado).\nCancelar: bloqueo total inmediato.",
           );
+        // 2.3.3: borrado preventivo de los datos locales del equipo, solo cuando
+        // ya no le quede nada sin enviar (nunca se borra lo que no llegó a Firebase).
+        let wipe = confirm(
+          "¿Borrar los datos del negocio de «" +
+            name +
+            "» cuando ya no le quede nada por enviar?\n\nLo ya sincronizado está a salvo en Firebase. Si le quedan ventas sin enviar, el equipo las conserva (bloqueado) y no se borra.\n\nAceptar: borrar (recomendado).\nCancelar: solo bloquear.",
+        );
         let upd = {
           active: false,
           revokedAt: Date.now(),
@@ -11787,6 +11817,7 @@
           revokeReason: reason,
           lost: false,
           drainUntil: drain ? firebase.firestore.Timestamp.fromMillis(Date.now() + 24 * 3600000) : null,
+          wipeOnRevoke: wipe,
         };
         try {
           await v2DeviceWrite(id, upd);
@@ -12083,7 +12114,12 @@
       }
       function licenseState() {
         let d = licenseDoc;
-        if (!d) return { state: "none", label: "Sin licencia instalada (modo compatibilidad)" };
+        // 2.3.3: con la clave pública del proveedor configurada, la licencia es
+        // obligatoria (también sin Firebase): sin ella no hay ventas nuevas.
+        if (!d)
+          return Object.keys(LICENSE_PUBLIC_KEYS).length
+            ? { state: "missing", label: "Sin licencia válida para este negocio", block: true }
+            : { state: "none", label: "Sin licencia instalada (modo compatibilidad)" };
         if (licenseVerify === "bad") return { state: "invalid", label: "Licencia inválida: la firma no corresponde", block: true };
         if (String(d.cafeId) !== V2_CAFE) return { state: "invalid", label: "La licencia pertenece a otro negocio", block: true };
         if (!originAllowed(d)) return { state: "origin", label: "Copia no autorizada: esta dirección (" + location.origin + ") no está en la licencia", block: true };
@@ -12104,7 +12140,7 @@
         saveSec();
         let st = licenseState();
         if (st.state !== lastLicenseState) {
-          if (lastLicenseState !== null && ["invalid", "origin", "suspended", "expired"].includes(st.state))
+          if (lastLicenseState !== null && ["invalid", "origin", "suspended", "expired", "missing"].includes(st.state))
             BulletAudit.record("licenseProblem", { licenseState: st.state, reason: st.label });
           lastLicenseState = st.state;
         }
@@ -12653,9 +12689,12 @@
         let l = secState.lock;
         if (l) return { code: "lock", msg: lockTitle(l) };
         if (kind === "finish") return null;
+        let le = leaseInfo();
+        // Un equipo aún sin autorizar ve primero ese aviso (no ha podido leer la licencia).
+        if (le.applies && !le.ok && le.never)
+          return { code: "auth", msg: "Este equipo aún no está autorizado. Conéctalo a internet y pide al PC Main que lo autorice.", action: "verify" };
         let lic = licenseState();
         if (lic.block) return { code: "license", msg: lic.label + ". Las ventas nuevas están bloqueadas; el historial y los respaldos siguen disponibles." };
-        let le = leaseInfo();
         if (le.applies && !le.ok)
           return le.never
             ? { code: "auth", msg: "Este equipo aún no está autorizado. Conéctalo a internet y pide al PC Main que lo autorice.", action: "verify" }
@@ -13894,7 +13933,7 @@
             txt = "Equipo bloqueado";
             cls = "bad";
           } else if (lic.block) {
-            txt = { origin: "Copia no autorizada", expired: "Licencia vencida", suspended: "Licencia suspendida", invalid: "Licencia inválida" }[lic.state] || "Licencia bloqueada";
+            txt = { origin: "Copia no autorizada", expired: "Licencia vencida", suspended: "Licencia suspendida", invalid: "Licencia inválida", missing: "Sin licencia" }[lic.state] || "Licencia bloqueada";
             cls = "bad";
           } else if (le.applies && !le.ok && !le.loading) {
             txt = le.never ? "Sin autorizar" : "Verificación requerida";
@@ -16857,7 +16896,8 @@
         let w = [],
           st = v2Status.get(d.id) || {},
           drain = tsMs(d.drainUntil);
-        if (d.lost && d.wipeRequested && !d.wipedAt) w.push("Está reportado como perdido y AÚN NO confirma el borrado de sus datos: si lo eliminas y se conecta, ya no recibirá la orden de borrado.");
+        if ((d.lost && d.wipeRequested) || d.wipeOnRevoke)
+          if (!d.wipedAt) w.push("Aún no confirma el borrado de sus datos. Si se conecta, igual se borrarán, salvo que tenga ventas sin enviar (esas las conserva bloqueado).");
         if (!d.lost && Number.isFinite(drain) && drain > Date.now()) w.push("Todavía puede enviar sus ventas pendientes hasta el " + fmtDT(drain) + ": al eliminarlo ya no podrá.");
         if (Number(st.pendingSales) > 0) w.push("Su último reporte tenía " + Number(st.pendingSales) + " venta(s) sin enviar.");
         return w;
@@ -16945,6 +16985,90 @@
           );
       };
       Object.assign(AUDIT_LABEL, { deviceDeleted: "Dispositivo eliminado de la lista" });
+
+      // ===== Bullet POS 2.3.3: licencia obligatoria y borrado preventivo =====
+      // - Con la clave pública del proveedor configurada, sin una licencia
+      //   firmada válida para esta dirección no hay ventas nuevas (también sin
+      //   Firebase: la licencia se carga como archivo).
+      // - Un equipo revocado con «borrar datos» o eliminado de la lista borra
+      //   sus datos locales cuando ya no le queda nada por enviar a Firebase.
+      async function maybeWipeRevoked() {
+        let l = secState.lock;
+        if (!l || l.state !== "revoked" || !l.wipe || l.wiped || window.__v2Wiping || deviceIsMain() || !BulletStore.loaded) return false;
+        let ops = [];
+        try {
+          ops = await BulletStore.all("outbox");
+        } catch (e) {
+          return false;
+        }
+        // La auditoría propia del bloqueo no impide el borrado; los datos del negocio sí.
+        if (ops.some((o) => o.col !== "audit")) return false;
+        await performWipe();
+        return true;
+      }
+      setInterval(() => {
+        if (secState.lock && secState.lock.wipe && !secState.lock.wiped) maybeWipeRevoked().catch(() => {});
+      }, 15000);
+      const _enforceLock233 = enforceLock;
+      enforceLock = function () {
+        _enforceLock233();
+        let l = secState.lock;
+        if (l && l.state === "revoked" && l.wipe && !l.wiped) setTimeout(() => maybeWipeRevoked().catch(() => {}), 1500);
+      };
+      // Licencia en archivo (instalaciones sin Firebase).
+      async function installLicenseText(text) {
+        let raw = null;
+        try {
+          raw = JSON.parse(text);
+        } catch (e) {
+          toast("El archivo no es una licencia válida");
+          return false;
+        }
+        let d = sanitizeLicense(raw);
+        if ((await verifyLicenseSig(d)) !== "signed") {
+          toast("Licencia rechazada: la firma no corresponde al proveedor");
+          return false;
+        }
+        if (String(d.cafeId) !== V2_CAFE) {
+          toast("Esa licencia es de otro negocio («" + d.cafeId + "»)");
+          return false;
+        }
+        await setLicense(d, "signed");
+        BulletAudit.record("licenseInstalled", { licenseState: licenseState().state, reason: d.licenseId || "" });
+        renderLicenseCard();
+        renderSecurityUI();
+        toast(licenseState().label);
+        return true;
+      }
+      function installLicenseFile(ev) {
+        let f = ev && ev.target && ev.target.files && ev.target.files[0];
+        if (!f) return;
+        let r = new FileReader();
+        r.onload = () => {
+          installLicenseText(String(r.result));
+          ev.target.value = "";
+        };
+        r.readAsText(f);
+      }
+      const _renderLicenseCard233 = renderLicenseCard;
+      renderLicenseCard = function () {
+        _renderLicenseCard233();
+        let el = gid("licenseBox");
+        if (!el) return;
+        let st = licenseState();
+        if (st.state === "missing")
+          el.innerHTML =
+            '<span class="pill off">Sin licencia</span> Este equipo no tiene una licencia válida para «' +
+            esc(V2_CAFE) +
+            "». Las ventas nuevas están bloqueadas; el historial y los respaldos siguen disponibles." +
+            (firebaseConfigured() ? " La licencia llega sola desde el servidor cuando el proveedor la publica." : "");
+        if (!firebaseConfigured())
+          el.insertAdjacentHTML(
+            "beforeend",
+            '<div style="margin-top:10px"><label class="lbl" for="licenseFile">Cargar licencia (archivo .json del proveedor)</label><input id="licenseFile" class="field" type="file" accept=".json,application/json" onchange="installLicenseFile(event)" /></div>',
+          );
+      };
+      Object.assign(AUDIT_LABEL, { licenseInstalled: "Licencia instalada desde archivo" });
 
       renderArchiveLog();
 

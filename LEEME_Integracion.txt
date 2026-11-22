@@ -1,6 +1,41 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.3.3 (licencia obligatoria y borrado preventivo)
+---------------------------------------------------------
+Cambian index.html, sw.js y herramientas/emisor-licencias.html (las reglas
+son las mismas de 2.3.0).
+
+IMPORTANTE ANTES DE PUBLICAR: la licencia publicada debe tener tu dirección
+(https://thebulletes-web.github.io) en «Direcciones autorizadas» y la firma
+verificada (Ajustes > Licencia). Si no, la app dejará de vender.
+
+Licencia obligatoria
+- Con la clave pública del proveedor en index.html, la app ya no tiene
+  «modo compatibilidad»: sin una licencia firmada válida para este negocio y
+  esta dirección, no permite ventas nuevas (sí ver el historial, respaldos,
+  Excel y cierres de caja).
+- Con Firebase, la licencia llega sola desde el servidor (licenses/{cafeId}).
+  Un proyecto Firebase ajeno no puede crear una licencia válida: no tiene la
+  clave privada del proveedor.
+- Sin Firebase (equipo único): Ajustes > Licencia > «Cargar licencia» con el
+  archivo .json que genera el emisor («Descargar licencia (.json)»).
+- Una copia abierta en otra dirección o como archivo local muestra «Copia no
+  autorizada» y no vende.
+
+Borrado preventivo al revocar o eliminar
+- «Revocar» pregunta si borrar los datos del equipo (recomendado). El equipo
+  se bloquea, termina de enviar lo pendiente (si se le dio plazo) y, cuando
+  ya no le queda nada por enviar, borra sus datos del negocio y cierra su
+  sesión. Muestra «Equipo desvinculado · datos locales borrados».
+- «Eliminar» un equipo que ya había operado tiene el mismo efecto cuando se
+  conecta.
+- Regla: nunca se borra nada que no haya llegado a Firebase. Si al equipo le
+  quedan ventas sin enviar, las conserva bloqueado y no se borra.
+- Al recibir el plazo para enviar pendientes, el equipo reintenta de
+  inmediato lo que había fallado.
+- El equipo necesita conectarse a internet al menos una vez para enterarse.
+
 VERSIÓN 2.3.2 (eliminar dispositivos inactivos)
 -----------------------------------------------
 Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).
