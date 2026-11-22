@@ -1,6 +1,25 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.3.2 (eliminar dispositivos inactivos)
+-----------------------------------------------
+Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).
+- Ajustes > Dispositivos: botón «Eliminar» en los equipos que no están
+  activos (revocados, perdidos o solicitudes pendientes) y «Limpiar
+  dispositivos inactivos» para quitarlos todos de una vez. Pide la
+  contraseña administrativa y queda en la auditoría.
+- Un equipo activo primero se revoca. Nunca se elimina un PC Main ni el
+  propio equipo.
+- Advierte antes de eliminar un equipo perdido que aún no confirmó el borrado
+  de sus datos, uno que todavía puede enviar pendientes o uno que reportó
+  ventas sin enviar. La limpieza masiva no toca esos casos.
+- Sus ventas ya registradas y la auditoría se conservan. Si un equipo
+  eliminado vuelve a abrir la app, aparece como solicitud nueva pendiente.
+- Seguridad: cuando el servidor confirma que un equipo ya no está
+  autorizado (eliminado de la lista o desactivado sin revocación), su plazo
+  sin conexión se anula al instante y no puede seguir vendiendo hasta que un
+  PC Main lo autorice de nuevo. Queda en la auditoría.
+
 VERSIÓN 2.3.1 (cerrar caja sin abrir otra)
 ------------------------------------------
 Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).

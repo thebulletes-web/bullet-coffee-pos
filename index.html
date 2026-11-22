@@ -2758,7 +2758,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.3.1",
+        APP_VERSION = "2.3.2",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -11500,8 +11500,16 @@
         }
       }
       function handleOwnDeviceDoc(snap, fromServer) {
-        if (!snap || !snap.exists) return;
+        if (!snap) return;
+        // 2.3.2: si el servidor confirma que el equipo ya no está autorizado
+        // (eliminado de la lista, o desactivado sin revocación), su plazo sin
+        // conexión se anula al instante: no puede seguir vendiendo localmente.
+        if (!snap.exists) {
+          if (fromServer) revokeLease("eliminado de la lista de dispositivos");
+          return;
+        }
         let d = snap.data() || {};
+        if (fromServer && d.active !== true && !d.lost && !d.revokedAt) revokeLease("sin autorización activa");
         if (d.lost === true) {
           setLock("lost", {
             at: tsMs(d.lostAt) || Date.now(),
@@ -11530,6 +11538,15 @@
         }
         saveSec();
         renderSecurityUI();
+      }
+      function revokeLease(reason) {
+        if (!secState.lastVerifiedAt) return;
+        secState.lastVerifiedAt = 0;
+        secState.unauthorizedAt = Date.now();
+        saveSec();
+        BulletAudit.record("leaseRevoked", { reason, deviceId: currentDeviceId() });
+        renderSecurityUI();
+        if (typeof renderCart === "function") renderCart();
       }
       function bindInstall() {
         if (!syncDb || !syncUser || window.__v2Binding) return;
@@ -11994,8 +12011,10 @@
                   actions =
                     btn("primary", "authorizeFromList", d.id, d.revokedAt ? "Autorizar de nuevo" : "Autorizar") +
                     (d.revokedAt && !d.lost && !draining ? " " + btn("", "extendDrain", d.id, "Permitir envío de pendientes") : "") +
-                    (!d.lost && d.revokedAt ? " " + btn("danger", "markDeviceLost", d.id, "Perdido") : "");
-                if (d.installId) actions += " " + btn("", "resetInstall", d.id, "Reconocer instalación");
+                    (!d.lost && d.revokedAt ? " " + btn("danger", "markDeviceLost", d.id, "Perdido") : "") +
+                    // 2.3.2: quitarlo de la lista (no borra sus ventas ni la auditoría).
+                    (mainIds().includes(d.id) ? "" : " " + btn("danger", "deleteDevice", d.id, "Eliminar"));
+                if (d.installId && d.active === true) actions += " " + btn("", "resetInstall", d.id, "Reconocer instalación");
               }
               return (
                 '<div class="dev-row"><div><strong>' +
@@ -13965,6 +13984,7 @@
         deviceUnlocked: "Bloqueo retirado en un dispositivo",
         deviceLimitReached: "Límite de dispositivos de la licencia",
         clockRollback: "Reloj del dispositivo atrasado",
+        leaseRevoked: "Plazo sin conexión anulado (equipo sin autorización)",
         leaseExpired: "Plazo sin conexión vencido",
         shiftOpened: "Turno iniciado",
         shiftClosed: "Turno cerrado",
@@ -16827,6 +16847,104 @@
         salesRescueRequested: "Ventas rechazadas enviadas al PC Main",
         salesRescued: "Ventas rescatadas registradas por el PC Main",
       });
+
+      // ===== Bullet POS 2.3.2: eliminar dispositivos inactivos de la lista =====
+      // Solo equipos que no estén activos (revocados, perdidos o solicitudes
+      // pendientes), nunca un PC Main ni este equipo. Se borra su documento de
+      // autorización y su último reporte; sus ventas y la auditoría se conservan.
+      // Si el equipo vuelve a abrir la app, aparece como solicitud nueva.
+      function deviceDeleteWarnings(d) {
+        let w = [],
+          st = v2Status.get(d.id) || {},
+          drain = tsMs(d.drainUntil);
+        if (d.lost && d.wipeRequested && !d.wipedAt) w.push("Está reportado como perdido y AÚN NO confirma el borrado de sus datos: si lo eliminas y se conecta, ya no recibirá la orden de borrado.");
+        if (!d.lost && Number.isFinite(drain) && drain > Date.now()) w.push("Todavía puede enviar sus ventas pendientes hasta el " + fmtDT(drain) + ": al eliminarlo ya no podrá.");
+        if (Number(st.pendingSales) > 0) w.push("Su último reporte tenía " + Number(st.pendingSales) + " venta(s) sin enviar.");
+        return w;
+      }
+      function deletableDevices() {
+        let me = syncUser ? syncUser.uid : "",
+          mains = mainIds();
+        return devicesList.filter((d) => d.active !== true && d.id !== me && !mains.includes(d.id));
+      }
+      async function deleteDevicesNow(list, label) {
+        let b = syncDb.batch();
+        list.forEach((d) => {
+          b.delete(devicesRef().doc(d.id));
+          b.delete(cloudRoot().collection("deviceStatus").doc(d.id));
+        });
+        await withTimeout(b.commit(), 20000);
+        list.forEach((d) => BulletAudit.record("deviceDeleted", { deviceId: d.id, operatorName: d.name || null, reason: label }));
+        // Se quitan ya de la lista local (no se espera a la escucha del servidor).
+        let gone = new Set(list.map((d) => d.id));
+        devicesList = devicesList.filter((d) => !gone.has(d.id));
+        renderDevices();
+      }
+      async function deleteDevice(id) {
+        if (!v2NeedOnlineMain("eliminar dispositivos")) return;
+        let d = devicesList.find((x) => x.id === id);
+        if (!d) return;
+        if (d.active === true) return toast("Primero revoca el dispositivo; después podrás eliminarlo");
+        if (mainIds().includes(id) || (syncUser && id === syncUser.uid)) return toast("No se puede eliminar un PC Main ni este equipo");
+        let w = deviceDeleteWarnings(d);
+        if (
+          !confirm(
+            "Eliminar «" +
+              v2DeviceName(id) +
+              "» de la lista de dispositivos.\n\n" +
+              (w.length ? "⚠ " + w.join("\n⚠ ") + "\n\n" : "") +
+              "Sus ventas ya registradas y la auditoría se conservan. Si ese equipo vuelve a abrir la app, aparecerá como una solicitud nueva pendiente de autorización.\n\n¿Eliminar?",
+          )
+        )
+          return;
+        if (!(await requireMainPassword("eliminar un dispositivo"))) return;
+        try {
+          await deleteDevicesNow([d], w.length ? "eliminado con advertencias" : "eliminado");
+        } catch (e) {
+          return toast(devErrMsg(e));
+        }
+        toast("Dispositivo eliminado de la lista");
+      }
+      async function cleanInactiveDevices() {
+        if (!v2NeedOnlineMain("limpiar dispositivos")) return;
+        let all = deletableDevices(),
+          safe = all.filter((d) => !deviceDeleteWarnings(d).length),
+          kept = all.length - safe.length;
+        if (!safe.length) return toast(kept ? "Los dispositivos inactivos tienen advertencias: elimínalos uno por uno" : "No hay dispositivos inactivos");
+        if (
+          !confirm(
+            "Eliminar " +
+              safe.length +
+              " dispositivo(s) inactivo(s) de la lista:\n\n• " +
+              safe.map((d) => v2DeviceName(d.id) + (d.lost ? " (perdido)" : d.revokedAt ? " (revocado)" : " (solicitud pendiente)")).join("\n• ") +
+              (kept ? "\n\n" + kept + " con advertencias se conservan (revísalos uno por uno)." : "") +
+              "\n\nSus ventas y la auditoría se conservan. ¿Eliminar?",
+          )
+        )
+          return;
+        if (!(await requireMainPassword("limpiar dispositivos inactivos"))) return;
+        try {
+          for (let i = 0; i < safe.length; i += 200) await deleteDevicesNow(safe.slice(i, i + 200), "limpieza de inactivos");
+        } catch (e) {
+          return toast(devErrMsg(e));
+        }
+        toast(safe.length + " dispositivo(s) eliminados de la lista");
+      }
+      const _renderDevices232 = renderDevices;
+      renderDevices = function () {
+        _renderDevices232();
+        let box = gid("devRows");
+        if (!box || !syncReady || !deviceApproved || devErr || !deviceIsMain()) return;
+        let n = deletableDevices().length;
+        if (n)
+          box.insertAdjacentHTML(
+            "afterbegin",
+            '<div class="actions" style="margin:4px 0 8px"><button class="btn small" onclick="cleanInactiveDevices()">Limpiar dispositivos inactivos (' +
+              n +
+              ")</button></div>",
+          );
+      };
+      Object.assign(AUDIT_LABEL, { deviceDeleted: "Dispositivo eliminado de la lista" });
 
       renderArchiveLog();
 
