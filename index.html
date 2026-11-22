@@ -2772,7 +2772,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.5.0",
+        APP_VERSION = "2.5.1",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -13863,6 +13863,10 @@
               secondaryLeaseHours: Number(d.secondaryLeaseHours) || DEFAULT_POLICY.secondaryLeaseHours,
               mainLeaseHours: Number(d.mainLeaseHours) || DEFAULT_POLICY.mainLeaseHours,
               diffNoteThreshold: Number(d.diffNoteThreshold) >= 0 ? Number(d.diffNoteThreshold) : DEFAULT_POLICY.diffNoteThreshold,
+              // 2.5.0 / 2.5.1: perfil, cobro directo por defecto y aprobación del turno.
+              directChargeDefault: d.directChargeDefault === true,
+              shiftApproval: d.shiftApproval === true,
+              profile: typeof d.profile === "string" ? d.profile : "custom",
               updatedAt: d.updatedAt || null,
               updatedBy: d.updatedBy || null,
             };
@@ -19659,13 +19663,13 @@
       const POLICY_PROFILES = {
         small: {
           label: "Negocio pequeño (2 a 4 personas)",
-          text: "Cobran todos los equipos, turnos opcionales, sin entrega a caja separada, 3 días sin conexión en secundarios y 7 en el Main, bloqueo con PIN a los 5 minutos.",
-          values: { requireShifts: false, secondaryLeaseHours: 72, mainLeaseHours: 168, separateDelivery: false, lockMinutes: 5, directChargeDefault: true },
+          text: "Cobran todos los equipos, turnos opcionales que se inician sin aprobación, sin entrega a caja separada, 3 días sin conexión en secundarios y 7 en el Main, bloqueo con PIN a los 5 minutos.",
+          values: { requireShifts: false, secondaryLeaseHours: 72, mainLeaseHours: 168, separateDelivery: false, lockMinutes: 5, directChargeDefault: true, shiftApproval: false },
         },
         staff: {
           label: "Negocio con meseros (control estricto)",
-          text: "Cobra el PC Main (los meseros envían solicitudes), turno obligatorio, entrega a caja separada, 8 h sin conexión en secundarios y 24 h en el Main, bloqueo con PIN a los 2 minutos.",
-          values: { requireShifts: true, secondaryLeaseHours: 8, mainLeaseHours: 24, separateDelivery: true, lockMinutes: 2, directChargeDefault: false },
+          text: "Cobra el PC Main (los meseros envían solicitudes), turno obligatorio y aprobado por el PC Main, entrega a caja separada, 8 h sin conexión en secundarios y 24 h en el Main, bloqueo con PIN a los 2 minutos.",
+          values: { requireShifts: true, secondaryLeaseHours: 8, mainLeaseHours: 24, separateDelivery: true, lockMinutes: 2, directChargeDefault: false, shiftApproval: true },
         },
       };
       const _posPolicy250 = posPolicy;
@@ -19673,6 +19677,7 @@
         let p = _posPolicy250(),
           raw = (data.settings && data.settings.policy) || {};
         p.directChargeDefault = raw.directChargeDefault === true;
+        p.shiftApproval = raw.shiftApproval === true;
         p.profile = POLICY_PROFILES[raw.profile] ? raw.profile : "custom";
         return p;
       };
@@ -19683,7 +19688,8 @@
           ", observación desde " + money(p.diffNoteThreshold) +
           ", entrega a caja " + (p.separateDelivery ? "separada (efectivo" + DELIVERY_METHODS.filter((m) => p.deliveryMethods && p.deliveryMethods[m]).map((m) => ", " + m).join("") + ")" : "automática") +
           ", bloqueo con PIN " + (Number(p.lockMinutes) ? p.lockMinutes + " min" : "desactivado") +
-          ", equipos nuevos " + (p.directChargeDefault ? "con cobro directo" : "sin cobro directo")
+          ", equipos nuevos " + (p.directChargeDefault ? "con cobro directo" : "sin cobro directo") +
+          ", inicio de turno " + (p.shiftApproval ? "con aprobación del PC Main" : "sin aprobación")
         );
       }
       async function savePolicyValues(after, opts) {
@@ -19731,6 +19737,7 @@
           deliveryMethods: dm,
           lockMinutes: gid("polLockMin") ? Number(gid("polLockMin").value) : posPolicy().lockMinutes,
           directChargeDefault: !!(gid("polDirectDefault") && gid("polDirectDefault").checked),
+          shiftApproval: !!(gid("polShiftApproval") && gid("polShiftApproval").checked),
         };
         let prof = Object.entries(POLICY_PROFILES).find(([, v]) => Object.entries(v.values).every(([k, x]) => after[k] === x));
         after.profile = prof ? prof[0] : "custom";
@@ -19744,6 +19751,7 @@
         gid("polDelivery").checked = v.separateDelivery;
         if (gid("polLockMin")) gid("polLockMin").value = String(v.lockMinutes);
         gid("polDirectDefault").checked = v.directChargeDefault;
+        if (gid("polShiftApproval")) gid("polShiftApproval").checked = v.shiftApproval;
         gid("polProfileNote").innerHTML = "<b>" + esc(POLICY_PROFILES[k].label) + ":</b> " + esc(POLICY_PROFILES[k].text) + " Revisa y pulsa «Guardar política».";
       }
       async function applyPolicyProfile(k, opts) {
@@ -19759,6 +19767,7 @@
             deliveryMethods: cur.deliveryMethods || {},
             lockMinutes: v.lockMinutes,
             directChargeDefault: v.directChargeDefault,
+            shiftApproval: v.shiftApproval,
             profile: k,
           },
           opts,
@@ -19773,6 +19782,10 @@
           c = gid("polDirectDefault");
         if (c) {
           c.checked = p.directChargeDefault;
+          if (gid("polShiftApproval")) {
+            gid("polShiftApproval").checked = p.shiftApproval;
+            gid("polShiftApproval").disabled = !main;
+          }
           c.disabled = !main;
         }
         let s = gid("polProfileState");
@@ -20146,7 +20159,8 @@
           grid.before(pr);
           let dd = document.createElement("div");
           dd.className = "wide";
-          dd.innerHTML = '<label class="tip-check"><input type="checkbox" id="polDirectDefault" /><span>Los equipos nuevos se autorizan con «Cobro directo» (cobran sin pasar por el PC Main)</span></label>';
+          dd.innerHTML = '<label class="tip-check"><input type="checkbox" id="polDirectDefault" /><span>Los equipos nuevos se autorizan con «Cobro directo» (cobran sin pasar por el PC Main)</span></label>' +
+            '<label class="tip-check"><input type="checkbox" id="polShiftApproval" /><span>Iniciar turno requiere la aprobación del PC Main (el tiempo cuenta desde la aprobación; sin internet no se puede iniciar)</span></label>';
           grid.appendChild(dd);
         }
         renderTenantCard();
@@ -20180,6 +20194,433 @@
         checkActivationLink().catch((e) => console.warn("Activación:", e));
         setTimeout(() => reverifyTenant().catch(() => {}), 2500);
       });
+      // ===== Bullet POS 2.5.1: fin de turno con bloqueo y turnos aprobados por el PC Main =====
+      // 1. Al cerrar el turno (en el equipo o forzado por el PC Main), el equipo
+      //    secundario queda bloqueado mostrando el resumen y las ventas del
+      //    turno, con «Guardar PDF» e «Imprimir». Para seguir hay que iniciar
+      //    otro turno con PIN (o «Seguir sin turno» si los turnos son opcionales).
+      // 2. Política «Iniciar turno requiere la aprobación del PC Main»: el mesero
+      //    envía una solicitud (shifts/{id}.status = "requested") y el PC Main la
+      //    aprueba o rechaza. El turno empieza a contar desde la aprobación.
+      //    Las reglas impiden que un secundario abra el turno por su cuenta.
+      const SHIFT_END_KEY = "bullet_shift_end_v251",
+        SHIFT_REQ_KEY = "bullet_shift_req_v251";
+      let shiftReqs = [],
+        myShiftReq = (function () {
+          try {
+            return JSON.parse(localStorage.getItem(SHIFT_REQ_KEY) || "null");
+          } catch (e) {
+            return null;
+          }
+        })(),
+        myReqUnsub = null,
+        lastSeenShiftId = shiftOpen() ? curShift.id : null,
+        shiftScreenHidden = false;
+      function shiftApprovalOn() {
+        return firebaseConfigured() && isRestrictedDevice() && posPolicy().shiftApproval === true;
+      }
+      function saveMyReq(r) {
+        myShiftReq = r && r.status === "requested" ? r : null;
+        try {
+          if (myShiftReq) localStorage.setItem(SHIFT_REQ_KEY, JSON.stringify(myShiftReq));
+          else localStorage.removeItem(SHIFT_REQ_KEY);
+        } catch (e) {}
+      }
+      function shiftEndId() {
+        try {
+          return localStorage.getItem(SHIFT_END_KEY) || null;
+        } catch (e) {
+          return null;
+        }
+      }
+      function setShiftEnd(id) {
+        try {
+          if (id) localStorage.setItem(SHIFT_END_KEY, id);
+          else localStorage.removeItem(SHIFT_END_KEY);
+        } catch (e) {}
+      }
+      function endedShift() {
+        let id = shiftEndId();
+        if (!id) return null;
+        return (lastShiftForPrint && lastShiftForPrint.id === id ? lastShiftForPrint : null) || (shiftHistoryCache || []).find((s) => s && s.id === id) || null;
+      }
+
+      // --- Solicitar el inicio del turno ---
+      const _openShiftModal251 = openShiftModal;
+      openShiftModal = function (mode) {
+        if ((mode === "open" || (!mode && !shiftOpen())) && myShiftReq) {
+          toast("Ya hay una solicitud de turno esperando al PC Main");
+          renderShiftScreen();
+          return;
+        }
+        let r = _openShiftModal251(mode);
+        if (shiftModalMode === "open" && shiftApprovalOn() && gid("shiftModal").classList.contains("show")) {
+          gid("shiftModalTitle").textContent = "Pedir inicio de turno";
+          gid("shiftModalBody").insertAdjacentHTML(
+            "afterbegin",
+            '<p class="notice" style="margin-top:0">El PC Main debe aprobar el inicio. El tiempo del turno empieza a contar cuando lo apruebe. Necesitas internet.</p>',
+          );
+          let b = gid("shiftConfirmBtn");
+          if (b) b.textContent = "Pedir inicio de turno";
+        }
+        return r;
+      };
+      const _confirmShiftOpen251 = confirmShiftOpen;
+      confirmShiftOpen = async function () {
+        if (!shiftApprovalOn()) return _confirmShiftOpen251();
+        if (shiftOpen() || myShiftReq) return closeCashModal("shiftModal");
+        let b = opBlock("new", { noShift: true });
+        if (b) return toast(b.msg);
+        if (!navigator.onLine || !syncReady) return toast("Sin conexión: el PC Main no puede aprobar el turno ahora. Conéctate a internet.");
+        let op = "",
+          staffId = null;
+        if (pinActive() && gid("shiftPin")) {
+          let err = (m) => (gid("shiftPinErr").textContent = m);
+          if (Date.now() < pinUntil) return err("Demasiados intentos. Espera " + Math.ceil((pinUntil - Date.now()) / 1000) + " s.");
+          err("Verificando…");
+          let st = await findStaffByPin(gid("shiftPin").value, staffForDevice());
+          err("");
+          if (!st) {
+            pinFails++;
+            if (pinFails >= 5) {
+              pinFails = 0;
+              pinUntil = Date.now() + 60000;
+              BulletAudit.record("pinLockout", { deviceId: currentDeviceId() });
+            }
+            return err("PIN incorrecto");
+          }
+          pinFails = 0;
+          op = st.name;
+          staffId = st.id;
+          setOperatorQuiet(st.name);
+        } else {
+          op = ((gid("shiftOp") || {}).value || "").trim().slice(0, 40);
+          if (!op) return toast("Escribe el nombre de la persona que atiende");
+        }
+        let now = Date.now(),
+          req = {
+            id: makeId(),
+            deviceId: currentDeviceId(),
+            deviceName: BulletSupervision.myName(),
+            operator: op,
+            staffId,
+            status: "requested",
+            requestedAt: new Date(now).toISOString(),
+            requestedAtMs: now,
+            openedAtMs: now,
+            openingNote: ((gid("shiftNote") || {}).value || "").trim().slice(0, 120),
+            appVersion: APP_VERSION,
+            gen: typeof dataGen === "function" ? dataGen() : 0,
+          };
+        let btn = gid("shiftConfirmBtn");
+        if (btn) btn.disabled = true;
+        saveMyReq(req);
+        try {
+          await BulletSync.enqueueDoc("shifts", req.id, req, { kind: "shift" });
+        } catch (e) {
+          console.warn("Solicitud de turno:", e);
+        }
+        BulletAudit.record("shiftRequested", { shiftId: req.id, operatorName: op });
+        closeCashModal("shiftModal");
+        watchMyReq();
+        shiftScreenHidden = false;
+        renderShiftScreen();
+        toast("Solicitud enviada al PC Main");
+      };
+      function watchMyReq() {
+        if (!myShiftReq || myReqUnsub || !syncReady || !deviceApproved || !syncDb) return;
+        let id = myShiftReq.id;
+        myReqUnsub = cloudRoot()
+          .collection("shifts")
+          .doc(id)
+          .onSnapshot(
+            async (snap) => {
+              if (!snap.exists || !myShiftReq || myShiftReq.id !== id) return;
+              let d = { ...snap.data(), id: snap.id };
+              if (d.status === "requested") return;
+              stopMyReqWatch();
+              try {
+                await BulletStore.del("outbox", "shifts/" + id);
+                await BulletSync.refreshStats();
+              } catch (e) {}
+              saveMyReq(null);
+              if (d.status === "open") {
+                saveShiftLocal(d);
+                await pushShiftHistory(d);
+                setShiftEnd(null);
+                lastSeenShiftId = d.id;
+                if (d.operator) setOperatorQuiet(d.operator);
+                BulletAudit.record("shiftOpened", { shiftId: d.id, operatorName: d.operator, approvedBy: d.approvedByName || null });
+                watchOwnShift();
+                BulletSupervision.report(true);
+                renderSecurityUI();
+                renderCart();
+                renderShiftScreen();
+                toast("Turno aprobado por el PC Main · " + (d.operator || ""));
+              } else {
+                renderShiftScreen();
+                if (d.status === "rejected") alert("El PC Main rechazó el inicio del turno" + (d.rejectReason ? ":\n" + d.rejectReason : "."));
+              }
+            },
+            () => stopMyReqWatch(),
+          );
+      }
+      function stopMyReqWatch() {
+        if (myReqUnsub)
+          try {
+            myReqUnsub();
+          } catch (e) {}
+        myReqUnsub = null;
+      }
+      async function cancelMyShiftReq() {
+        if (!myShiftReq) return;
+        let r = { ...myShiftReq, status: "cancelled", cancelledAt: new Date().toISOString() };
+        stopMyReqWatch();
+        saveMyReq(null);
+        try {
+          await BulletSync.enqueueDoc("shifts", r.id, r, { kind: "shift" });
+        } catch (e) {}
+        BulletAudit.record("shiftRequestCancelled", { shiftId: r.id });
+        renderShiftScreen();
+        toast("Solicitud cancelada");
+      }
+
+      // --- PC Main: aprobar o rechazar ---
+      const _onShiftsSnap251 = onShiftsSnap;
+      onShiftsSnap = function (snap) {
+        let g = typeof dataGen === "function" ? dataGen() : 0,
+          all = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+        shiftReqs = all
+          .filter((s) => s.status === "requested" && (Number(s.gen) || 0) >= g && Date.now() - (Number(s.requestedAtMs) || 0) < 12 * 3600000)
+          .sort((a, b) => (a.requestedAtMs || 0) - (b.requestedAtMs || 0));
+        _onShiftsSnap251({ docs: snap.docs.filter((d) => ["open", "closed"].includes((d.data() || {}).status)) });
+        renderShiftReqBanner();
+      };
+      function reqAgo(ms) {
+        let m = Math.max(0, Math.round((Date.now() - (Number(ms) || 0)) / 60000));
+        return m < 1 ? "hace un momento" : m < 60 ? "hace " + m + " min" : "hace " + Math.round(m / 60) + " h";
+      }
+      function renderShiftReqBanner() {
+        let el = gid("shiftReqBanner");
+        if (!el) return;
+        let list = deviceIsMain() ? shiftReqs : [];
+        el.style.display = list.length ? "block" : "none";
+        el.innerHTML = list
+          .slice(0, 4)
+          .map(
+            (r) =>
+              '<div class="srq"><span>🕒 <b>' + esc(r.operator || "—") + "</b> pide iniciar turno en " + esc(r.deviceName || v2DeviceName(r.deviceId)) + " · " + esc(reqAgo(r.requestedAtMs)) +
+              (r.openingNote ? " · «" + esc(r.openingNote) + "»" : "") +
+              '</span><span><button class="btn small primary" onclick="approveShiftReq(\'' + esc(r.id) + "')\">Aprobar</button> <button class=\"btn small\" onclick=\"rejectShiftReq('" + esc(r.id) + "')\">Rechazar</button></span></div>",
+          )
+          .join("") + (list.length > 4 ? '<div class="sub" style="color:#fff">… y ' + (list.length - 4) + " más (Caja > Turnos)</div>" : "");
+      }
+      async function approveShiftReq(id) {
+        let r = shiftReqs.find((x) => x.id === id);
+        if (!r || !deviceIsMain()) return;
+        if (!v2NeedOnlineMain("aprobar el turno")) return;
+        let now = Date.now(),
+          d = {
+            ...r,
+            status: "open",
+            openedAt: new Date(now).toISOString(),
+            openedAtMs: now,
+            approvedAt: new Date(now).toISOString(),
+            approvedBy: currentDeviceId(),
+            approvedByName: BulletSupervision.myName(),
+            approvedByOperator: operatorName() || null,
+            cashSessionId: cashSession && cashSession.status === "open" ? cashSession.id : null,
+          };
+        shiftReqs = shiftReqs.filter((x) => x.id !== id);
+        renderShiftReqBanner();
+        await BulletSync.enqueueDoc("shifts", id, d, { kind: "shift" });
+        BulletSync.kick("shift");
+        BulletAudit.record("shiftApproved", { shiftId: id, operatorName: r.operator, deviceId: r.deviceId, waitedMs: now - (Number(r.requestedAtMs) || now) });
+        toast("Turno aprobado: " + (r.operator || ""));
+      }
+      async function rejectShiftReq(id) {
+        let r = shiftReqs.find((x) => x.id === id);
+        if (!r || !deviceIsMain()) return;
+        let reason = prompt("Rechazar el turno de " + (r.operator || "—") + ". Motivo (lo verá el mesero):", "");
+        if (reason === null) return;
+        let d = { ...r, status: "rejected", rejectReason: reason.trim().slice(0, 160), rejectedAt: new Date().toISOString(), rejectedBy: currentDeviceId(), rejectedByName: BulletSupervision.myName() };
+        shiftReqs = shiftReqs.filter((x) => x.id !== id);
+        renderShiftReqBanner();
+        await BulletSync.enqueueDoc("shifts", id, d, { kind: "shift" });
+        BulletSync.kick("shift");
+        BulletAudit.record("shiftRejected", { shiftId: id, operatorName: r.operator, deviceId: r.deviceId, reason: d.rejectReason });
+        toast("Solicitud rechazada");
+      }
+      const _renderShiftsCard251 = renderShiftsCard;
+      renderShiftsCard = function () {
+        _renderShiftsCard251();
+        let el = gid("shiftsBox");
+        if (!el || !deviceIsMain() || !shiftReqs.length) return;
+        el.insertAdjacentHTML(
+          "afterbegin",
+          '<h4 class="mini-title">Solicitudes de inicio de turno</h4>' +
+            shiftReqs
+              .map(
+                (r) =>
+                  '<div class="line"><span>' + esc(r.operator || "—") + " · " + esc(r.deviceName || v2DeviceName(r.deviceId)) + " · " + esc(reqAgo(r.requestedAtMs)) +
+                  '</span><span><button class="btn small primary" onclick="approveShiftReq(\'' + esc(r.id) + "')\">Aprobar</button> <button class=\"btn small\" onclick=\"rejectShiftReq('" + esc(r.id) + "')\">Rechazar</button></span></div>",
+              )
+              .join(""),
+        );
+      };
+
+      // --- Fin de turno: bloqueo con resumen, ventas y PDF ---
+      function shiftSalesOf(sh) {
+        return (data.sales || []).filter((s) => s.shiftId === sh.id).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      }
+      function trackShiftEnd() {
+        if (!isRestrictedDevice()) return;
+        if (shiftOpen()) {
+          if (lastSeenShiftId !== curShift.id) {
+            lastSeenShiftId = curShift.id;
+            setShiftEnd(null);
+          }
+          return;
+        }
+        if (lastSeenShiftId) {
+          setShiftEnd(lastSeenShiftId);
+          lastSeenShiftId = null;
+          shiftScreenHidden = false;
+        }
+      }
+      function renderShiftScreen() {
+        trackShiftEnd();
+        let el = gid("shiftScreen");
+        if (!el) return;
+        let restricted = isRestrictedDevice(),
+          sh = restricted && !shiftOpen() ? endedShift() : null,
+          waiting = restricted && !shiftOpen() && myShiftReq,
+          modalOpen = gid("shiftModal") && gid("shiftModal").classList.contains("show"),
+          show = (sh || waiting) && !shiftScreenHidden && !modalOpen && !secState.lock;
+        el.style.display = show ? "flex" : "none";
+        if (!show) return;
+        if (waiting) {
+          gid("ssTitle").textContent = "Esperando aprobación del turno";
+          gid("ssBody").innerHTML =
+            '<p class="sub">Se envió al PC Main la solicitud de <b>' + esc(myShiftReq.operator || "") + "</b> (" + esc(reqAgo(myShiftReq.requestedAtMs)) + "). Cuando la apruebe, el turno empieza y este equipo se desbloquea solo.</p>" +
+            (navigator.onLine ? "" : '<p class="notice">Sin conexión: la solicitud llegará cuando vuelva internet.</p>');
+          gid("ssActions").innerHTML = '<button class="btn" onclick="cancelMyShiftReq()">Cancelar solicitud</button>';
+          return;
+        }
+        let sum = sh.summary || shiftSummary(sh),
+          sales = shiftSalesOf(sh),
+          L = (a, b, c) => '<div class="line' + (c ? " " + c : "") + '"><span>' + esc(a) + "</span><strong>" + esc(b) + "</strong></div>";
+        gid("ssTitle").textContent = sh.closeMode === "forced" ? "El PC Main cerró tu turno" : "Turno cerrado";
+        gid("ssBody").innerHTML =
+          (sh.closeMode === "forced" && sh.forcedReason ? '<p class="notice">Motivo: ' + esc(sh.forcedReason) + "</p>" : "") +
+          '<div class="cash-breakdown">' +
+          L("Persona", sh.operator || "—") +
+          L("Equipo", sh.deviceName || BulletSupervision.myName()) +
+          L("Inicio", fmtDT(sh.openedAt)) +
+          L("Cierre", fmtDT(sh.closedAt) + " · " + shiftDuration(sh)) +
+          L("Ventas", String(sum.salesCount || 0) + (sum.voidedCount ? " (+" + sum.voidedCount + " anuladas)" : "")) +
+          CASH_METHODS.filter((m) => sum.byMethod && sum.byMethod[m]).map((m) => L(m, money(sum.byMethod[m]))).join("") +
+          L("Propinas", money(sum.tips || 0)) +
+          L("Total vendido", money(sum.total || 0)) +
+          L("Efectivo cobrado", money(sum.cashCollected || 0), "total") +
+          (sh.cashDelivered != null ? L("Efectivo entregado", money(sh.cashDelivered)) + L("Diferencia", diffInfo(sh.cashDifference).label) : "") +
+          "</div>" +
+          (sales.length
+            ? '<h4 class="mini-title">Ventas del turno</h4><div class="table-wrap" style="max-height:34vh;overflow:auto"><table><thead><tr><th>Hora</th><th>Detalle</th><th>Pago</th><th>Total</th></tr></thead><tbody>' +
+              sales
+                .map(
+                  (s) =>
+                    "<tr" + (s.voided ? ' style="opacity:.55;text-decoration:line-through"' : "") + "><td>" + esc(new Date(s.date).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })) + "</td><td>" +
+                    esc((s.tableName ? s.tableName + ": " : "") + (s.items || []).map((x) => x.name + " x" + x.qty).join(", ")) + "</td><td>" + esc(s.payment || "") + "</td><td>" + money(cashAmount(s.total)) + "</td></tr>",
+                )
+                .join("") +
+              "</tbody></table></div>"
+            : '<p class="sub">Sin ventas en este turno.</p>');
+        gid("ssActions").innerHTML =
+          '<button class="btn" onclick="shiftEndPrint(\'pdf\')">Guardar PDF</button><button class="btn" onclick="shiftEndPrint(\'ticket\')">Imprimir</button>' +
+          (shiftsRequired() || shiftApprovalOn() ? "" : '<button class="btn" onclick="shiftEndDismiss()">Seguir sin turno</button>') +
+          '<button class="btn primary" onclick="shiftEndNew()">' + (shiftApprovalOn() ? "Pedir nuevo turno" : "Iniciar nuevo turno") + "</button>";
+      }
+      function shiftEndPrint(kind) {
+        let sh = endedShift();
+        if (!sh) return;
+        lastShiftForPrint = sh;
+        let prev = printFormat();
+        if (kind === "pdf") setPrintFormat("a4");
+        printShiftReport();
+        if (kind === "pdf") {
+          setPrintFormat(prev);
+          toast("En la ventana de impresión elige «Guardar como PDF»");
+        }
+        BulletAudit.record("shiftReportPrinted", { shiftId: sh.id, kind });
+      }
+      function shiftEndNew() {
+        shiftScreenHidden = true;
+        gid("shiftScreen").style.display = "none";
+        openShiftModal("open");
+        // Si cancela, la pantalla vuelve.
+        setTimeout(function back() {
+          if (gid("shiftModal").classList.contains("show")) return setTimeout(back, 700);
+          shiftScreenHidden = false;
+          renderShiftScreen();
+        }, 700);
+      }
+      function shiftEndDismiss() {
+        if (shiftsRequired() || shiftApprovalOn()) return;
+        setShiftEnd(null);
+        renderShiftScreen();
+      }
+      // Las ventas del turno también salen en el reporte impreso / PDF.
+      const _shiftReportLines251 = shiftReportLines;
+      shiftReportLines = function (sh, W) {
+        let L = _shiftReportLines251(sh, W),
+          sales = shiftSalesOf(sh);
+        if (!sales.length) return L;
+        let at = L.findIndex((x) => /^Entrega: /.test(x));
+        if (at < 0) return L;
+        let add = ["-".repeat(W), "Ventas del turno (" + sales.length + ")"];
+        sales.forEach((s) => {
+          let t = new Date(s.date).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+          add.push(rcRow(t + (s.voided ? " ANULADA" : "") + " " + (s.payment || ""), fmt(cashAmount(s.total)), W));
+          wrapTxt("  " + (s.tableName ? s.tableName + ": " : "") + (s.items || []).map((x) => x.name + " x" + x.qty).join(", "), W).forEach((x) => add.push(x));
+        });
+        let pos = at > 0 && L[at - 1] === "" ? at - 1 : at;
+        return L.slice(0, pos).concat(add, L.slice(pos));
+      };
+      const SH_CSS = `
+      #shiftScreen{z-index:58}
+      #shiftScreen .lock-box{width:min(640px,100%);max-height:94vh;overflow:auto;text-align:left}
+      #shiftScreen h2{text-align:center;color:var(--green)}
+      #shiftReqBanner{position:fixed;top:74px;left:50%;transform:translateX(-50%);z-index:57;width:min(720px,calc(100vw - 20px));display:none}
+      #shiftReqBanner .srq{background:var(--green);color:#fff;border-radius:12px;padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:var(--shadow);font-size:14px}
+      #shiftReqBanner .btn{background:#fff;color:var(--green)}
+      #shiftReqBanner .btn.primary{background:var(--orange);color:#fff}`;
+      (function mountShiftUI() {
+        let st = document.createElement("style");
+        st.textContent = SH_CSS;
+        document.head.appendChild(st);
+        let tmp = document.createElement("div");
+        tmp.innerHTML =
+          '<div class="lock-screen" id="shiftScreen"><div class="lock-box"><div class="lock-icon" style="text-align:center">🧾</div><h2 id="ssTitle">Turno cerrado</h2><div id="ssBody"></div><div class="modal-actions" id="ssActions" style="flex-wrap:wrap"></div></div></div>' +
+          '<div id="shiftReqBanner"></div>';
+        [...tmp.children].forEach((c) => document.body.appendChild(c));
+      })();
+      const _renderSecurityUI251 = renderSecurityUI;
+      renderSecurityUI = function () {
+        let r = _renderSecurityUI251.apply(this, arguments);
+        renderShiftScreen();
+        renderShiftReqBanner();
+        return r;
+      };
+      const _startV2Listeners251 = startV2Listeners;
+      startV2Listeners = function () {
+        _startV2Listeners251();
+        watchMyReq();
+      };
+      setInterval(() => {
+        renderShiftScreen();
+        if (deviceIsMain() && shiftReqs.length) renderShiftReqBanner();
+      }, 3000);
       renderArchiveLog();
 
       renderProducts();

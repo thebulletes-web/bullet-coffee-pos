@@ -1,5 +1,6 @@
 rules_version = '2';
-// Bullet POS 2.5.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.5.1 — Reglas de seguridad de Firestore.
+// 2.5.1: turnos aprobados por el PC Main (shiftApproval: el secundario solo pide el turno).
 // 2.5.0: el proveedor puede autorizar el primer equipo de un negocio nuevo (vendorBootstrap).
 // 2.4.0: inventario y costos (invItems, invRecipes, invMovements).
 // 2.3.0: solicitudes de cobro (chargeRequests) y permiso «Cobro directo».
@@ -477,6 +478,13 @@ service cloud.firestore {
     // Cada equipo abre y cierra sus propios turnos (la cola puede enviar el
     // turno ya cerrado si se abrió y cerró sin conexión). Un turno cerrado no
     // cambia, salvo la confirmación de entrega que registra un PC Main.
+    // 2.5.1: con control/policy.shiftApproval == true, un secundario no abre su
+    // turno: lo pide (status "requested") y solo un PC Main lo abre ("open") o
+    // lo rechaza ("rejected"). El secundario puede cancelar su solicitud.
+    function shiftApprovalRequired(cafeId) {
+      let p = /databases/$(database)/documents/cafeterias/$(cafeId)/control/policy;
+      return exists(p) && get(p).data.get('shiftApproval', false) == true;
+    }
     match /cafeterias/{cafeId}/shifts/{shiftId} {
       allow get: if isMainOrBootstrap(cafeId)
         || (canSend(cafeId) && (resource == null || resource.data.deviceId == request.auth.uid));
@@ -486,17 +494,22 @@ service cloud.firestore {
           || (approvedDevice(cafeId) && licenseOk(cafeId)
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.id == shiftId
-            && request.resource.data.status in ['open', 'closed']));
+            && (request.resource.data.status == 'requested'
+                || (request.resource.data.status in ['open', 'closed'] && !shiftApprovalRequired(cafeId)))));
       allow update: if (isMainOrBootstrap(cafeId)
             && request.resource.data.id == shiftId
-            && (resource.data.status == 'open'
+            && (resource.data.status in ['open', 'requested']
                 || request.resource.data.diff(resource.data).affectedKeys()
                      .hasOnly(['reviewedAt', 'reviewedBy', 'reviewedByName', 'reviewNote'])))
         || (canSend(cafeId)
             && resource.data.deviceId == request.auth.uid
             && request.resource.data.deviceId == request.auth.uid
             && request.resource.data.id == shiftId
-            && (resource.data.status == 'open' || request.resource.data == resource.data));
+            && (resource.data.status == 'open'
+                || request.resource.data == resource.data
+                || (resource.data.status == 'requested'
+                    && request.resource.data.status == 'cancelled'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt']))));
       // 2.1.0: solo el reinicio real borra turnos de generaciones anteriores.
       allow delete: if isMain(cafeId) && oldGen(cafeId, resource.data);
     }

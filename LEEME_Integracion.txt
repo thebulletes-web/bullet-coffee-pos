@@ -1,6 +1,30 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.5.1 (fin de turno con bloqueo; turnos aprobados por el PC Main)
+-------------------------------------------------------------------------
+Cambian index.html, sw.js y firestore.rules (publícalas en Bullet Coffee y
+en cada negocio).
+- Al cerrar el turno (en el equipo o forzado por el PC Main), el equipo
+  secundario queda bloqueado con el resumen: persona, horario, ventas por
+  medio de pago, propinas, efectivo cobrado/entregado y la lista de ventas.
+  Botones «Guardar PDF» (hoja A4: en la ventana de impresión elige «Guardar
+  como PDF»), «Imprimir» y «Pedir/Iniciar nuevo turno». El bloqueo sigue al
+  recargar. Si los turnos son opcionales, también «Seguir sin turno».
+- El reporte impreso del turno incluye ahora la lista de ventas.
+- Nueva política «Iniciar turno requiere la aprobación del PC Main»
+  (activada en el perfil «con meseros», desactivada en «Negocio pequeño»):
+  · el mesero escribe su PIN y envía la solicitud; su equipo muestra
+    «Esperando aprobación» (puede cancelarla);
+  · el PC Main ve un aviso arriba, en cualquier pestaña, y en Caja > Turnos:
+    «Aprobar» o «Rechazar» (con motivo, que ve el mesero);
+  · el turno empieza a contar desde la aprobación;
+  · se necesita internet para iniciar el turno con aprobación;
+  · las reglas impiden que un secundario abra el turno por su cuenta.
+- Corrección: el perfil, «cobro directo por defecto» y la aprobación de
+  turno ya no se pierden cuando la política llega desde Firebase a los
+  demás equipos (afectaba a 2.5.0).
+
 VERSIÓN 2.5.0 (varios negocios, perfil «Negocio pequeño», asistente y soporte)
 ------------------------------------------------------------------------------
 Cambian index.html, sw.js, firestore.rules y herramientas/emisor-licencias.html.
