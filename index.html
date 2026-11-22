@@ -2373,10 +2373,17 @@
         <label class="lbl" for="closeNotes">Observaciones del cierre</label
         ><input id="closeNotes" class="field" maxlength="200" />
         <div class="sub" id="closeNoteHint"></div>
-        <div class="split-row">
+        <label class="tip-check" style="margin-top: 10px"
+          ><input
+            type="checkbox"
+            id="closeReopen"
+            onchange="gid('closeNextRow').style.display = this.checked ? '' : 'none'"
+          /><span>Abrir una caja nueva al cerrar (turno siguiente)</span></label
+        >
+        <div class="split-row" id="closeNextRow" style="display: none">
           <div>
             <label class="lbl" for="closeNextBase"
-              >Base de la nueva caja (se abre automáticamente)</label
+              >Base de la nueva caja</label
             ><input
               id="closeNextBase"
               class="field"
@@ -2751,7 +2758,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.3.0",
+        APP_VERSION = "2.3.1",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -6034,6 +6041,10 @@
           (id) => (gid(id).value = ""),
         );
         gid("closeNextBase").value = String(Math.round(cashAmount(cashSession.openingAmount)));
+        if (gid("closeReopen")) {
+          gid("closeReopen").checked = false;
+          gid("closeNextRow").style.display = "none";
+        }
         gid("closeCashConfirm").disabled = false;
         renderCloseDifference();
         gid("cashCloseModal").classList.add("show");
@@ -6116,7 +6127,9 @@
           toast("Escribe el efectivo contado");
           return;
         }
-        if (rawNext === "" || !Number.isFinite(nextBase) || nextBase < 0) {
+        // 2.3.1: por defecto el cierre deja la caja cerrada; abrir otra es opcional.
+        let reopen = !!(gid("closeReopen") && gid("closeReopen").checked);
+        if (reopen && (rawNext === "" || !Number.isFinite(nextBase) || nextBase < 0)) {
           toast("Escribe la base de la nueva caja (puede ser 0)");
           return;
         }
@@ -6166,21 +6179,24 @@
             // 2.0.0: conteo por denominaciones y turnos abiertos al cierre.
             ...(typeof cashCloseExtras200 === "function" ? cashCloseExtras200() : {}),
           };
-        let next = {
-          id: makeId(),
-          status: "open",
-          openedAt: new Date().toISOString(),
-          openedBy: syncUser?.uid || "local",
-          openedByName: BulletSupervision.myName(),
-          openedByOperator: operatorName() || null,
-          openingAmount: nextBase,
-          openingNote: nextNote,
-          day: cashDay(),
-          createdAt: Date.now(),
-          autoOpened: true,
-          previousSessionId: closed.id,
-          gen: typeof dataGen === "function" ? dataGen() : 0,
-        };
+        let next = reopen
+          ? {
+              id: makeId(),
+              status: "open",
+              openedAt: new Date().toISOString(),
+              openedBy: syncUser?.uid || "local",
+              openedByName: BulletSupervision.myName(),
+              openedByOperator: operatorName() || null,
+              openingAmount: nextBase,
+              openingNote: nextNote,
+              day: cashDay(),
+              createdAt: Date.now(),
+              autoOpened: true,
+              previousSessionId: closed.id,
+              gen: typeof dataGen === "function" ? dataGen() : 0,
+            }
+          : null;
+        if (!next) closed.closeMode = "close_only";
         if (syncReady && deviceApproved) {
           try {
             await syncDb.runTransaction(async (tx) => {
@@ -6193,9 +6209,9 @@
                   "La sesión cambió en otro dispositivo. Actualiza la caja.",
                 );
               tx.set(cashSessionsRef().doc(closed.id), closed, { merge: true });
-              tx.set(cashSessionsRef().doc(next.id), next);
+              if (next) tx.set(cashSessionsRef().doc(next.id), next);
               tx.set(cashMetaRef(), {
-                currentSessionId: next.id,
+                currentSessionId: next ? next.id : null,
                 updatedAt: Date.now(),
               });
             });
@@ -6236,17 +6252,18 @@
             cardDifference: closed.cardDifference,
             transfersDifference: closed.transfersDifference,
           });
-        BulletAudit.record("cashOpened", {
-          sessionId: next.id,
-          openingAmount: nextBase,
-          note: nextNote,
-          auto: true,
-          previousSessionId: closed.id,
-        });
+        if (next)
+          BulletAudit.record("cashOpened", {
+            sessionId: next.id,
+            openingAmount: nextBase,
+            note: nextNote,
+            auto: true,
+            previousSessionId: closed.id,
+          });
         saveCashLocal(next);
         cashMovements = [];
         renderCashDashboard();
-        toast("Caja cerrada (" + diffInfo(closed.difference).label + "). Nueva caja abierta.");
+        toast("Caja cerrada (" + diffInfo(closed.difference).label + ")." + (next ? " Nueva caja abierta." : " Para vender de nuevo, abre la caja."));
       }
       async function addCashMovement() {
         if (!(await requireMainPassword("registrar un movimiento de caja")))
@@ -15564,6 +15581,8 @@
         } catch (e) {}
         setPinLocked(false);
         pinLastActivity = Date.now();
+        savePinActivity(true);
+        pinLastActivity = Date.now();
         setOperatorQuiet(st.name);
         BulletAudit.record("pinDeviceSetup", { staffId: st.id, operatorName: st.name, deviceId: currentDeviceId() });
         renderPinScreens();
@@ -15658,6 +15677,8 @@
           BulletAudit.record("operatorChanged", { staffId: st.id, operatorName: st.name, before: prev || "—", after: st.name, deviceId: currentDeviceId() });
         }
         setPinLocked(false);
+        pinLastActivity = Date.now();
+        savePinActivity(true);
         pinSel = null;
         pinLastActivity = Date.now();
         renderPinScreens();
@@ -15673,6 +15694,8 @@
         }
         BulletAudit.record("pinAdminUnlock", { deviceId: currentDeviceId() });
         setPinLocked(false);
+        pinLastActivity = Date.now();
+        savePinActivity(true);
         pinSel = null;
         pinLastActivity = Date.now();
         renderPinScreens();
@@ -15685,11 +15708,28 @@
         document.addEventListener(
           ev,
           () => {
-            if (!pinLocked()) pinLastActivity = Date.now();
+            if (!pinLocked()) {
+              pinLastActivity = Date.now();
+              savePinActivity();
+            }
           },
           { passive: true, capture: true },
         ),
       );
+      // 2.3.1: la última actividad se guarda para que recargar la app dentro
+      // del tiempo de inactividad no vuelva a pedir el PIN.
+      const PIN_ACTIVITY_KEY = "bullet_pin_activity_v22";
+      let pinActivitySavedAt = 0;
+      function savePinActivity(force) {
+        if (!force && Date.now() - pinActivitySavedAt < 10000) return;
+        pinActivitySavedAt = Date.now();
+        try {
+          localStorage.setItem(PIN_ACTIVITY_KEY, String(pinLastActivity));
+        } catch (e) {}
+      }
+      window.addEventListener("pagehide", () => {
+        if (!pinLocked()) savePinActivity(true);
+      });
       function pinIdleCheck() {
         if (!pinActive() || pinLocked() || !lockMinutes() || saleInFlight) return;
         if (Date.now() - pinLastActivity > lockMinutes() * 60000) lockByPin("inactividad");
@@ -15894,13 +15934,24 @@
         if (d.origin) extra.push("desde " + d.origin);
         return [base].concat(extra).filter(Boolean).join(" · ");
       };
-      // Al abrir la app, un equipo con PIN empieza bloqueado.
+      // Al abrir la app: si el equipo estaba bloqueado, sigue bloqueado; si
+      // pasó más del tiempo de inactividad desde el último uso, se bloquea.
+      // Recargar mientras se está usando no vuelve a pedir el PIN.
       BulletStore.ready.then(async () => {
         try {
           let m = await BulletStore.getMeta("staff");
           if (Array.isArray(m) && !staffList.length) staffList = m;
         } catch (e) {}
-        if (pinActive()) setPinLocked(true);
+        if (pinActive() && !pinLocked()) {
+          let last = 0;
+          try {
+            last = Number(localStorage.getItem(PIN_ACTIVITY_KEY)) || 0;
+          } catch (e) {}
+          let idle = Date.now() - last,
+            limit = lockMinutes() * 60000;
+          if (!last || !limit || idle > limit || idle < 0) setPinLocked(true);
+          else pinLastActivity = last;
+        }
         renderPinScreens();
       });
 
@@ -15965,6 +16016,7 @@
         return l.slice(0, n || 3).join(", ") + (l.length > (n || 3) ? " y " + (l.length - (n || 3)) + " más" : "");
       }
       function reqLabel(r) {
+        if (r.kind === "rescue") return "Ventas por registrar (" + ((r.saleIds || []).length || 0) + ")";
         return r.kind === "table" ? "Mesa " + r.table : "Mostrador";
       }
       async function putRequest(r) {
@@ -16445,7 +16497,9 @@
                       r,
                       '<button class="btn small primary" onclick="acceptChargeRequest(\'' +
                         esc(r.id) +
-                        "')\">Cobrar</button> <button class=\"btn small danger\" onclick=\"rejectChargeRequest('" +
+                        "')\">" +
+                        (r.kind === "rescue" ? "Registrar ventas" : "Cobrar") +
+                        "</button> <button class=\"btn small danger\" onclick=\"rejectChargeRequest('" +
                         esc(r.id) +
                         "')\">Rechazar</button>",
                     ),
@@ -16606,6 +16660,173 @@
         return [base].concat(extra).filter(Boolean).join(" · ");
       };
       renderReqUI();
+
+      // ===== Bullet POS 2.3.1: rescate de ventas que Firebase rechaza =====
+      // Si un equipo secundario tiene ventas que las reglas rechazan de forma
+      // permanente (p. ej. por un cambio de permiso o de identidad), no se
+      // pierden: se envían al PC Main como «Ventas por registrar» y el Main las
+      // registra con sus permisos (mismo ID, fecha, mesero y turno). Cuando el
+      // Main confirma, el equipo limpia su cola.
+      async function stuckSaleOps() {
+        let ops = [];
+        try {
+          ops = await BulletStore.all("outbox");
+        } catch (e) {}
+        let g = dataGen();
+        return ops.filter(
+          (o) =>
+            o.col === "sales" &&
+            o.payload &&
+            o.state === "error" &&
+            (o.attempts || 0) >= 3 &&
+            /permiso|permission/i.test(o.lastError || "") &&
+            (Number(o.payload.gen) || 0) >= g,
+        );
+      }
+      let rescueBusy = false;
+      async function rescueStuckSales(manual) {
+        if (rescueBusy || deviceIsMain() || !firebaseConfigured() || !syncReady || !deviceApproved || window.__v2Drain || secState.lock) return 0;
+        rescueBusy = true;
+        try {
+          let ops = await stuckSaleOps(),
+            busy = new Set();
+          chargeReqs.forEach((r) => {
+            if (r.kind === "rescue" && r.status === "pending") (r.saleIds || []).forEach((id) => busy.add(String(id)));
+          });
+          let fresh = ops.filter((o) => !busy.has(String(o.docId))).slice(0, 60);
+          if (!fresh.length) {
+            if (manual) toast(ops.length ? "Esas ventas ya están enviadas al PC Main para registrar" : "No hay ventas rechazadas por Firebase");
+            return 0;
+          }
+          let sales = fresh.map((o) => o.payload),
+            req = {
+              id: makeId(),
+              gen: dataGen(),
+              status: "pending",
+              kind: "rescue",
+              deviceId: currentDeviceId(),
+              deviceName: BulletSupervision.myName(),
+              operator: operatorName() || null,
+              staffId: reqStaffId(),
+              shiftId: shiftOpen() ? curShift.id : null,
+              createdAt: new Date().toISOString(),
+              createdAtMs: Date.now(),
+              saleIds: sales.map((s) => String(s.id)),
+              sales,
+              total: sales.filter((s) => !s.voided).reduce((a, s) => a + cashAmount(s.total), 0),
+              lastError: fresh[0].lastError || "",
+              note: "Firebase rechazó estas ventas; el PC Main las registra",
+            };
+          await putRequest(req);
+          BulletAudit.record("salesRescueRequested", { requestId: req.id, count: sales.length, total: req.total, reason: req.lastError });
+          toast(sales.length + " venta(s) rechazadas por Firebase se enviaron al PC Main para registrarlas");
+          return sales.length;
+        } finally {
+          rescueBusy = false;
+        }
+      }
+      setInterval(() => {
+        if (document.visibilityState !== "hidden") rescueStuckSales(false).catch(() => {});
+      }, 120000);
+      // PC Main: registrar las ventas rescatadas.
+      async function acceptRescue(r) {
+        if (!deviceIsMain()) return;
+        let list = (r.sales || []).filter((s) => s && s.id);
+        if (
+          !confirm(
+            "Registrar " +
+              list.length +
+              " venta(s) de " +
+              (r.operator || r.deviceName || "un equipo") +
+              " que Firebase rechazó (" +
+              money(r.total) +
+              ").\n\nSe registran con su número, fecha, mesero y turno originales: no se duplican. Si pertenecen a una caja ya cerrada, aparecerán como ventas tardías para conciliar.\n\n¿Registrar?",
+          )
+        )
+          return;
+        let have = new Set(data.sales.map((s) => String(s.id))),
+          add = [],
+          g = dataGen(),
+          at = new Date().toISOString();
+        list.forEach((s) => {
+          let x = { ...s, gen: g, rescued: true, rescuedAt: at, rescuedBy: currentDeviceId(), rescuedByName: BulletSupervision.myName(), rescueRequestId: r.id };
+          if (!x.deviceId || x.deviceId === "local") x.deviceId = r.deviceId;
+          if (!have.has(String(x.id))) data.sales.unshift(x);
+          add.push(x);
+        });
+        data.sales.sort((a, b) => new Date(b.date) - new Date(a.date));
+        persist();
+        await BulletStore.putSales(add).catch(() => {});
+        await BulletSync.enqueueSales(add);
+        Object.assign(r, {
+          status: "accepted",
+          savedIds: add.map((s) => String(s.id)),
+          resolvedAt: Date.now(),
+          resolvedBy: currentDeviceId(),
+          resolvedByName: BulletSupervision.myName(),
+          resolvedByOperator: operatorName() || null,
+          chargedTotal: r.total,
+        });
+        await putRequest(r);
+        BulletAudit.record("salesRescued", { requestId: r.id, count: add.length, total: r.total, deviceId: r.deviceId, operatorName: r.operator });
+        renderSales();
+        renderCashDashboard();
+        setTimeout(() => tryPendingReleases(), 1500);
+        toast(add.length + " venta(s) registradas");
+      }
+      const _acceptChargeRequest231 = acceptChargeRequest;
+      acceptChargeRequest = async function (id) {
+        let r = chargeReqs.get(id);
+        if (r && r.kind === "rescue") {
+          if (r.status !== "pending") return toast("La solicitud ya no está pendiente");
+          return acceptRescue(r);
+        }
+        return _acceptChargeRequest231(id);
+      };
+      // Equipo secundario: cuando el Main registró sus ventas, limpia la cola.
+      async function applyRescued(r) {
+        let ids = new Set((r.savedIds || r.saleIds || []).map(String)),
+          now = Date.now();
+        for (let id of ids) {
+          await BulletStore.del("outbox", "sales/" + id).catch(() => {});
+          await BulletStore.put("syncState", { id, state: "synced", confirmedAt: now, createdAt: now, updatedAt: now, via: "rescate" }).catch(() => {});
+        }
+        await BulletSync.refreshStats();
+        renderSales();
+        toast("✅ El PC Main registró " + ids.size + " venta(s) que estaban rechazadas");
+      }
+      const _onReqSnap231 = onReqSnap;
+      onReqSnap = function (snap) {
+        let before = new Map();
+        chargeReqs.forEach((r, id) => before.set(id, r.status));
+        _onReqSnap231(snap);
+        if (deviceIsMain()) return;
+        let me = currentDeviceId();
+        chargeReqs.forEach((r, id) => {
+          if (r.kind === "rescue" && r.deviceId === me && r.status === "accepted" && before.get(id) === "pending") applyRescued(r);
+        });
+      };
+      // En el panel de sincronización del equipo: enviar ya al PC Main.
+      const _renderSyncPanel231 = renderSyncPanel;
+      renderSyncPanel = function () {
+        _renderSyncPanel231();
+        let el = gid("syncPanelBody");
+        if (!el || deviceIsMain() || !firebaseConfigured()) return;
+        let st = BulletSync.stats(),
+          denied = (st.ops || []).filter((o) => o.col === "sales" && o.state === "error" && /permiso|permission/i.test(o.lastError || "")).length;
+        if (denied)
+          el.insertAdjacentHTML(
+            "afterbegin",
+            '<div class="set-card"><h3>Ventas rechazadas por Firebase</h3><div class="sub">' +
+              denied +
+              " venta(s) no se pueden enviar desde este equipo. Se envían al PC Main para que las registre (no se pierden ni se duplican).</div>" +
+              '<button class="btn primary" style="margin-top:8px" onclick="rescueStuckSales(true)">Enviar al PC Main ahora</button></div>',
+          );
+      };
+      Object.assign(AUDIT_LABEL, {
+        salesRescueRequested: "Ventas rechazadas enviadas al PC Main",
+        salesRescued: "Ventas rescatadas registradas por el PC Main",
+      });
 
       renderArchiveLog();
 

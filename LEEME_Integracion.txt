@@ -1,6 +1,31 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.3.1 (cerrar caja sin abrir otra)
+------------------------------------------
+Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).
+- «Cerrar caja» ahora deja la caja CERRADA. Antes, cada cierre abría
+  automáticamente una caja nueva, y por eso parecía que no se cerraba.
+- Para el comportamiento anterior (cerrar y abrir la del turno siguiente),
+  marca «Abrir una caja nueva al cerrar» en la ventana de cierre y escribe la
+  base.
+- Con la caja cerrada, Venta muestra «Abrir caja». El reinicio de datos
+  requiere la caja cerrada (o abierta sin ventas).
+- Ventas rechazadas por Firebase: si un equipo de mesero tiene ventas que
+  las reglas rechazan siempre («Permiso denegado»), ya no se reintentan sin
+  fin. Se envían solas al PC Main como «Ventas por registrar» (también con
+  el botón «Enviar al PC Main ahora» del panel de sincronización). En el PC
+  Main, Solicitudes > «Registrar ventas»: se registran con su número, fecha,
+  mesero y turno originales (no se duplican). Si eran de una caja ya
+  cerrada, aparecen como ventas tardías para conciliar. Al confirmarse, el
+  equipo limpia su cola.
+- Corregido: el PC Main podía no recibir las solicitudes de cobro ni las
+  entregas a caja si su rol de Main se cargaba unos segundos tarde.
+- PIN: recargar la página o la app mientras se está usando ya no vuelve a
+  pedir el PIN. Lo pide al abrirla después del tiempo de inactividad
+  (2 minutos por defecto). Si el equipo estaba bloqueado, recargar no lo
+  desbloquea.
+
 VERSIÓN 2.3.0 (solicitudes de cobro: por defecto solo los PC Main cobran)
 -----------------------------------------------------------------------
 Cambian index.html, sw.js y firestore.rules.
