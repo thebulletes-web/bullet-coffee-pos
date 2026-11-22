@@ -1,6 +1,28 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.3.4 (PIN sin nombres y corrección de «equipo nuevo»)
+--------------------------------------------------------------
+Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).
+- Identificación solo con PIN: la pantalla de bloqueo, el inicio de turno y
+  la configuración de PIN de un equipo nuevo ya no muestran nombres ni listas
+  para elegir persona. Se escribe el PIN y la app reconoce quién es.
+- Cada PIN es único: al crear una persona, restablecer su PIN o crear la
+  primera persona de un equipo, no se acepta un PIN que ya use otra persona
+  activa («Ese PIN ya lo usa otra persona: elige otro»).
+- Se mantienen las reglas anteriores: en un PC Main solo desbloquea un PIN de
+  administración (o la contraseña administrativa); con un turno abierto solo
+  lo desbloquea su dueño o un administrador.
+- Los nombres siguen existiendo internamente (reportes, auditoría, Ajustes >
+  Personal y PIN), pero no aparecen en las pantallas de acceso.
+- Si dos personas antiguas tuvieran el mismo PIN, gana la dueña del turno
+  abierto; conviene restablecer uno de los dos desde Ajustes.
+- Corregido: en un equipo eliminado o revocado con borrado, «Preparar como
+  equipo nuevo» no lo desbloqueaba (la marca de bloqueo seguía guardada en
+  IndexedDB), así que nunca se conectaba y su solicitud no llegaba al PC
+  Main. Ahora se limpia por completo: el equipo se conecta con una identidad
+  nueva y aparece como pendiente para autorizarlo.
+
 VERSIÓN 2.3.3 (licencia obligatoria y borrado preventivo)
 ---------------------------------------------------------
 Cambian index.html, sw.js y herramientas/emisor-licencias.html (las reglas

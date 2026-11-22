@@ -2634,9 +2634,9 @@
       <div class="lock-box">
         <div class="lock-icon">🔐</div>
         <h2 style="color: var(--green)">Equipo bloqueado</h2>
-        <p class="sub" id="pinLockText">Elige tu nombre y escribe tu PIN.</p>
-        <div id="pinStaff" class="pin-staff"></div>
-        <div id="pinEntry" style="display: none">
+        <p class="sub" id="pinLockText">Escribe tu PIN.</p>
+        <div id="pinStaff" class="pin-staff" style="display: none"></div>
+        <div id="pinEntry">
           <div id="pinWho" style="font-weight: 800"></div>
           <input
             id="pinInput"
@@ -2649,8 +2649,7 @@
           />
           <div id="pinErr" class="pin-err"></div>
           <div class="modal-actions">
-            <button class="btn" onclick="pinBack()">Cambiar persona</button
-            ><button class="btn primary" id="pinUnlockBtn" onclick="pinUnlock()">Desbloquear</button>
+            <button class="btn primary" id="pinUnlockBtn" onclick="pinUnlock()">Desbloquear</button>
           </div>
         </div>
         <div class="modal-actions" id="pinExtra"></div>
@@ -2676,8 +2675,7 @@
           ><input id="psPin2" class="field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" />
         </div>
         <div class="pin-form" id="pinSetupHave" style="display: none">
-          <label class="lbl" for="psStaff">¿Quién eres?</label><select id="psStaff" class="field"></select>
-          <label class="lbl" for="psHavePin">Tu PIN</label
+          <label class="lbl" for="psHavePin">Escribe tu PIN (la app reconoce quién eres)</label
           ><input id="psHavePin" class="field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" />
         </div>
         <div id="pinSetupErr" class="pin-err"></div>
@@ -2758,7 +2756,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.3.3",
+        APP_VERSION = "2.3.4",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -11682,12 +11680,20 @@
         data = { products: [], sales: [], settings: {}, tables: {} };
         location.reload();
       }
-      function resetWipedDevice() {
+      async function resetWipedDevice() {
         if (!secState.lock || !secState.lock.wiped) return;
         if (!confirm("Este equipo ya no tiene datos del negocio. ¿Prepararlo como un equipo nuevo? Tendrá que ser autorizado otra vez por el PC Main."))
           return;
+        // 2.3.4: la marca de bloqueo está en localStorage Y en IndexedDB (para
+        // que no se pueda quitar borrando solo una). Aquí se limpian las dos;
+        // antes solo se limpiaba localStorage y el equipo seguía bloqueado sin
+        // conectarse, por lo que su solicitud nunca llegaba al PC Main.
+        saveSec = function () {}; // nada vuelve a escribir la marca antes de recargar
         try {
           localStorage.removeItem(SEC_KEY);
+        } catch (e) {}
+        try {
+          await BulletStore.del("meta", "security");
         } catch (e) {}
         location.reload();
       }
@@ -15547,6 +15553,21 @@
         return (await deriveAdminHash(String(pin), st.pinSalt)) === st.pinHash;
       }
       const validPin = (p) => /^\d{4,6}$/.test(String(p || ""));
+      // 2.3.4: la persona se identifica SOLO con su PIN (no se muestran nombres).
+      // Por eso cada PIN es único entre el personal activo.
+      async function findStaffByPin(pin, list) {
+        if (!validPin(pin)) return null;
+        let cands = (list || []).filter((s) => s && s.pinHash && s.pinSalt),
+          res = await Promise.all(cands.map((s) => pinMatches(s, pin).catch(() => false))),
+          hits = cands.filter((s, i) => res[i]);
+        if (!hits.length) return null;
+        // Si por datos antiguos dos personas comparten PIN, gana el dueño del turno abierto.
+        return (shiftOpen() && curShift.staffId && hits.find((s) => s.id === curShift.staffId)) || hits[0];
+      }
+      async function pinInUse(pin, exceptId) {
+        let act = staffList.filter((s) => s && s.active !== false && s.id !== exceptId);
+        return !!(await findStaffByPin(pin, act));
+      }
       async function createStaff(name, pin, role) {
         let salt = randomSalt(),
           doc = {
@@ -15583,12 +15604,6 @@
         gid("pinSetupNew").style.display = mode === "new" ? "" : "none";
         gid("pinSetupHave").style.display = mode === "have" ? "" : "none";
         gid("pinSetupErr").textContent = "";
-        if (mode === "have") {
-          let list = staffForDevice();
-          gid("psStaff").innerHTML = list.length
-            ? list.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.role === "main" ? " (administración)" : "") + "</option>").join("")
-            : '<option value="">' + (deviceIsMain() ? "No hay personal de administración todavía" : "No hay personal registrado todavía") + "</option>";
-        }
       }
       function renderPinSetup() {
         let el = gid("pinSetupScreen");
@@ -15597,7 +15612,7 @@
         if (show)
           gid("pinSetupText").textContent = deviceIsMain()
             ? "Este PC Main se acaba de sincronizar. Crea el PIN de la persona que lo administra (o entra con uno que ya exista)."
-            : "Este equipo se acaba de sincronizar. Cada persona entra con su propio PIN: créalo o, si ya tienes uno, elige tu nombre.";
+            : "Este equipo se acaba de sincronizar. Cada persona entra con su propio PIN: créalo o, si ya tienes uno, escríbelo.";
         if (show && el.style.display !== "flex") {
           ["psName", "psPin", "psPin2", "psHavePin"].forEach((id) => (gid(id).value = ""));
           gid("psName").value = operatorName();
@@ -15619,6 +15634,10 @@
           if (p1 !== p2) return err("Los dos PIN no coinciden");
           if (nameTaken(name)) return err("Ya existe una persona con ese nombre: usa «Ya tengo PIN»");
           btn.disabled = true;
+          if (await pinInUse(p1)) {
+            btn.disabled = false;
+            return err("Ese PIN ya lo usa otra persona: elige otro");
+          }
           try {
             st = await createStaff(name, p1, deviceIsMain() ? "main" : "waiter");
           } catch (e) {
@@ -15627,12 +15646,14 @@
           }
           BulletAudit.record("staffCreated", { staffId: st.id, operatorName: st.name, staffRole: st.role, origin: "configuración del equipo" });
         } else {
-          st = staffList.find((s) => s.id === gid("psStaff").value);
-          if (!st) return err("Elige tu nombre");
+          let pin = gid("psHavePin").value;
+          if (!validPin(pin)) return err("El PIN tiene de 4 a 6 dígitos");
           btn.disabled = true;
-          let ok = await pinMatches(st, gid("psHavePin").value);
+          err("Verificando…");
+          st = await findStaffByPin(pin, staffForDevice());
           btn.disabled = false;
-          if (!ok) return err("PIN incorrecto");
+          if (!st) return err(deviceIsMain() ? "PIN incorrecto o no es de administración" : "PIN incorrecto");
+          err("");
         }
         btn.disabled = false;
         try {
@@ -15672,23 +15693,14 @@
         if (!show) return;
         let list = staffForDevice(),
           main = deviceIsMain();
+        // 2.3.4: sin lista de nombres: solo el PIN.
         gid("pinLockText").textContent =
-          (shiftOpen() && !main ? "Turno abierto: " + (curShift.operator || "—") + ". " : "") +
-          (list.length ? "Elige tu nombre y escribe tu PIN." : main ? "No hay personal de administración con PIN: usa la contraseña administrativa." : "No hay personal con PIN para este equipo. Pide ayuda al PC Main.");
-        gid("pinStaff").style.display = pinSel ? "none" : "";
-        gid("pinEntry").style.display = pinSel ? "" : "none";
-        if (!pinSel)
-          gid("pinStaff").innerHTML = list
-            .map(
-              (s) =>
-                '<button onclick="pinPick(\'' +
-                esc(s.id) +
-                "')\">" +
-                esc(s.name) +
-                (s.role === "main" ? "<small>administración</small>" : shiftOpen() && curShift.staffId === s.id ? "<small>turno abierto</small>" : "") +
-                "</button>",
-            )
-            .join("");
+          (shiftOpen() && !main ? "Hay un turno abierto en este equipo. " : "") +
+          (list.length ? "Escribe tu PIN." : main ? "No hay personal de administración con PIN: usa la contraseña administrativa." : "No hay personal con PIN para este equipo. Pide ayuda al PC Main.");
+        gid("pinStaff").style.display = "none";
+        gid("pinEntry").style.display = "";
+        gid("pinWho").textContent = "";
+        if (el.style.display === "flex" && document.activeElement !== gid("pinInput")) setTimeout(() => gid("pinInput") && gid("pinInput").focus(), 30);
         gid("pinExtra").innerHTML = main ? '<button class="btn" onclick="pinAdminUnlock()">Usar contraseña administrativa</button>' : "";
       }
       function pinPick(id) {
@@ -15705,22 +15717,23 @@
         renderPinLock();
       }
       async function pinUnlock() {
-        let st = pinSel,
-          err = (m) => (gid("pinErr").textContent = m);
-        if (!st) return;
+        let err = (m) => (gid("pinErr").textContent = m);
         if (Date.now() < pinUntil) return err("Demasiados intentos. Espera " + Math.ceil((pinUntil - Date.now()) / 1000) + " s.");
         let pin = gid("pinInput").value;
         if (!validPin(pin)) return err("El PIN tiene de 4 a 6 dígitos");
         gid("pinUnlockBtn").disabled = true;
-        let ok = await pinMatches(st, pin);
+        err("Verificando…");
+        // La persona se reconoce por su PIN (en un PC Main, solo administración).
+        let st = pinSel && (await pinMatches(pinSel, pin)) ? pinSel : await findStaffByPin(pin, staffForDevice());
         gid("pinUnlockBtn").disabled = false;
         gid("pinInput").value = "";
-        if (!ok) {
+        err("");
+        if (!st) {
           pinFails++;
           if (pinFails >= 5) {
             pinFails = 0;
             pinUntil = Date.now() + 60000;
-            BulletAudit.record("pinLockout", { staffId: st.id, operatorName: st.name, deviceId: currentDeviceId() });
+            BulletAudit.record("pinLockout", { deviceId: currentDeviceId() });
             return err("5 intentos fallidos. Espera 1 minuto.");
           }
           return err("PIN incorrecto (" + pinFails + " de 5)");
@@ -15803,13 +15816,9 @@
       openShiftModal = function (mode) {
         let r = _openShiftModal220(mode);
         if (pinActive() && shiftModalMode === "open" && gid("shiftModal").classList.contains("show")) {
-          let list = staffList.filter((s) => s.active !== false && s.pinHash),
-            cur = list.find((s) => s.name === operatorName());
           gid("shiftModalBody").innerHTML =
-            '<p class="sub">Elige quién inicia el turno y confirma con su PIN. Las ventas de este equipo quedarán a su nombre.</p>' +
-            '<label class="lbl" for="shiftStaff">Persona</label><select id="shiftStaff" class="field">' +
-            list.map((s) => '<option value="' + esc(s.id) + '"' + (cur && cur.id === s.id ? " selected" : "") + ">" + esc(s.name) + "</option>").join("") +
-            '</select><label class="lbl" for="shiftPin">PIN</label><input id="shiftPin" class="field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" />' +
+            '<p class="sub">Escribe tu PIN para iniciar el turno. Las ventas de este equipo quedarán a tu nombre.</p>' +
+            '<label class="lbl" for="shiftPin">PIN</label><input id="shiftPin" class="field" type="password" inputmode="numeric" maxlength="6" autocomplete="off" />' +
             '<label class="lbl" for="shiftNote">Observación (opcional)</label><input id="shiftNote" class="field" maxlength="120" />' +
             '<input id="shiftOp" type="hidden" /><div id="shiftPinErr" class="pin-err"></div>';
           setTimeout(() => gid("shiftPin") && gid("shiftPin").focus(), 60);
@@ -15818,17 +15827,18 @@
       };
       const _confirmShiftOpen220 = confirmShiftOpen;
       confirmShiftOpen = async function () {
-        if (!pinActive() || !gid("shiftStaff")) return _confirmShiftOpen220();
-        let err = (m) => (gid("shiftPinErr").textContent = m),
-          st = staffList.find((s) => s.id === gid("shiftStaff").value);
-        if (!st) return err("Elige la persona");
+        if (!pinActive() || !gid("shiftPin")) return _confirmShiftOpen220();
+        let err = (m) => (gid("shiftPinErr").textContent = m);
         if (Date.now() < pinUntil) return err("Demasiados intentos. Espera " + Math.ceil((pinUntil - Date.now()) / 1000) + " s.");
-        if (!(await pinMatches(st, gid("shiftPin").value))) {
+        err("Verificando…");
+        let st = await findStaffByPin(gid("shiftPin").value, staffForDevice());
+        err("");
+        if (!st) {
           pinFails++;
           if (pinFails >= 5) {
             pinFails = 0;
             pinUntil = Date.now() + 60000;
-            BulletAudit.record("pinLockout", { staffId: st.id, operatorName: st.name, deviceId: currentDeviceId() });
+            BulletAudit.record("pinLockout", { deviceId: currentDeviceId() });
           }
           return err("PIN incorrecto");
         }
@@ -15866,6 +15876,7 @@
         if (nameTaken(name)) return toast("Ya existe una persona activa con ese nombre");
         if (!validPin(p1)) return toast("El PIN debe tener de 4 a 6 dígitos");
         if (p1 !== p2) return toast("Los dos PIN no coinciden");
+        if (await pinInUse(p1)) return toast("Ese PIN ya lo usa otra persona: elige otro");
         if (!(await requireMainPassword("agregar personal"))) return;
         let st = await createStaff(name, p1, role);
         BulletAudit.record("staffCreated", { staffId: st.id, operatorName: st.name, staffRole: st.role, origin: "PC Main" });
@@ -15891,6 +15902,7 @@
         if (!validPin(p1)) return toast("El PIN debe tener de 4 a 6 dígitos");
         let p2 = prompt("Repite el PIN:", "");
         if (p2 !== p1) return toast("Los dos PIN no coinciden");
+        if (await pinInUse(p1, id)) return toast("Ese PIN ya lo usa otra persona: elige otro");
         let salt = randomSalt();
         await staffUpdate(id, { pinSalt: salt, pinHash: await deriveAdminHash(p1, salt) }, "staffPinReset");
         toast("PIN restablecido para " + st.name);
