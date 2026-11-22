@@ -1,6 +1,27 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.5.2 (equipo nuevo sin activar: pregunta a qué negocio pertenece)
+--------------------------------------------------------------------------
+Cambian index.html, sw.js y .gitignore (las reglas son las de 2.5.1).
+- Un equipo nuevo que abre la app SIN link de activación ya no se conecta solo
+  al negocio de firebase-config.js (Bullet Coffee). Primero muestra «Activa
+  este equipo»: pegar el código/link de activación, o «Es un equipo de
+  bullet-coffee» (pide confirmar).
+- Los equipos que ya trabajaban (Bullet Coffee y negocios activados) no ven
+  nada nuevo.
+- El borrado preventivo de un equipo revocado o eliminado conserva a qué
+  negocio pertenece: al «Preparar como equipo nuevo» vuelve a pedir
+  autorización en SU negocio.
+- .gitignore: impide subir por error la clave privada del emisor, la lista de
+  clientes exportada, licencias descargadas y respaldos.
+- Segundo PC Main: el aviso decía «Ajustes > Administración principal», pero
+  los equipos secundarios no ven Ajustes. Ahora el PC Main muestra una ventana
+  con el código, la cuenta regresiva y los pasos: en el otro equipo, tocar el
+  indicador de sincronización (arriba) > «Vincular como segundo PC Main»
+  (primera tarjeta del panel, con un campo para escribir el código) >
+  Vincular. Los secundarios siguen sin ver Ajustes.
+
 VERSIÓN 2.5.1 (fin de turno con bloqueo; turnos aprobados por el PC Main)
 -------------------------------------------------------------------------
 Cambian index.html, sw.js y firestore.rules (publícalas en Bullet Coffee y

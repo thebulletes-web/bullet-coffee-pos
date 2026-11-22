@@ -2772,7 +2772,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.5.1",
+        APP_VERSION = "2.5.2",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -9953,6 +9953,11 @@
           return;
         }
         BulletAudit.record("mainPairingCreated", { expiresAt: expires.toISOString() });
+        // 2.5.2: ventana con el código y dónde escribirlo (los secundarios no ven Ajustes).
+        if (typeof showPairCode === "function") {
+          showPairCode(code, expires);
+          return code;
+        }
         alert(
           "Código para vincular el segundo PC Main:\n\n" +
             code.slice(0, 4) +
@@ -9964,7 +9969,7 @@
         );
         return code;
       }
-      async function claimSecondMain() {
+      async function claimSecondMain(pre) {
         if (deviceIsMain()) {
           toast("Este equipo ya es PC Main");
           return;
@@ -9973,7 +9978,8 @@
           toast("Este equipo debe estar autorizado y con internet");
           return;
         }
-        let v = prompt("Código de vinculación entregado por el PC Main:", "");
+        // 2.5.2: el código puede llegar escrito en el panel de sincronización.
+        let v = pre != null && String(pre).trim() ? String(pre) : prompt("Código de vinculación entregado por el PC Main:", "");
         if (v === null) return;
         let code = String(v).toUpperCase().replace(/[^A-Z0-9]/g, "");
         if (code.length !== 8) {
@@ -10718,16 +10724,19 @@
       renderSyncPanel = function () {
         _renderSyncPanel180();
         let el = gid("syncPanelBody");
+        // 2.5.2: arriba del panel y con el campo para escribir el código.
         if (el && !deviceIsMain() && deviceApproved && adminConfig && adminConfig.mainDeviceId)
           el.insertAdjacentHTML(
-            "beforeend",
-            '<div class="set-card"><h3>Segundo PC Main</h3><div class="sub">Si un PC Main te entregó un código de vinculación, este equipo puede convertirse en el segundo Main.</div><button class="btn" style="margin-top:8px" onclick="claimSecondMain()">Vincular como segundo Main</button></div>',
+            "afterbegin",
+            '<div class="set-card" id="secondMainCard"><h3>Vincular como segundo PC Main</h3><div class="sub">Si el PC Main te mostró un código de vinculación (8 caracteres, vence en 10 minutos), escríbelo aquí y este equipo pasará a ser el segundo PC Main.</div>' +
+              '<div class="actions" style="margin-top:8px"><input id="secondMainCode" class="field" style="max-width:180px;text-transform:uppercase;letter-spacing:.12em;font-weight:800" maxlength="9" placeholder="ABCD-1234" autocomplete="off" />' +
+              '<button class="btn primary" onclick="claimSecondMain(gid(\'secondMainCode\').value)">Vincular como segundo Main</button></div></div>',
           );
       };
       // Tras vincularse como Main, se recarga para consultar todas las ventas.
       const _claimSecondMain180 = claimSecondMain;
       claimSecondMain = async function () {
-        await _claimSecondMain180();
+        await _claimSecondMain180.apply(this, arguments);
         if (deviceIsMain() && window.__salesScope === "own") {
           setKnownRole("main");
           toast("Recargando para cargar el historial global…");
@@ -11674,12 +11683,23 @@
             await withTimeout(syncDb.clearPersistence(), 5000);
           }
         } catch (e) {}
+        // 2.5.2: se conserva a qué negocio pertenece el equipo (la activación no
+        // tiene datos del negocio); así, al prepararlo como nuevo, vuelve a pedir
+        // autorización en SU negocio y no en el de firebase-config.js.
+        let keepTenant = null,
+          keepDefault = null;
+        try {
+          keepTenant = localStorage.getItem("bullet_tenant_v25");
+          keepDefault = localStorage.getItem("bullet_tenant_default_v25");
+        } catch (e) {}
         try {
           localStorage.clear();
           sessionStorage.clear();
         } catch (e) {}
         try {
           localStorage.setItem(SEC_KEY, keep);
+          if (keepTenant) localStorage.setItem("bullet_tenant_v25", keepTenant);
+          if (keepDefault) localStorage.setItem("bullet_tenant_default_v25", keepDefault);
         } catch (e) {}
         const delDb = (n) =>
           new Promise((res) => {
@@ -13904,7 +13924,7 @@
       };
       const _claimSecondMain200 = claimSecondMain;
       claimSecondMain = async function () {
-        await _claimSecondMain200();
+        await _claimSecondMain200.apply(this, arguments);
         if (deviceIsMain()) startV2Listeners();
       };
 
@@ -19589,7 +19609,16 @@
       }
       function chooserNeeded() {
         try {
-          return firebaseConfigured() && appStandalone() && !currentTenant && !localStorage.getItem(LAST_UID_KEY) && !localStorage.getItem("bullet_tenant_default_v25");
+          // 2.5.2: cualquier equipo nuevo sin activar (navegador o app instalada)
+          // pregunta primero a qué negocio pertenece; ya no se conecta solo al
+          // negocio de firebase-config.js. Los equipos que ya trabajaban no cambian.
+          return (
+            (location.protocol === "https:" || window.__forceChooser === true) &&
+            firebaseConfigured() &&
+            !currentTenant &&
+            !localStorage.getItem(LAST_UID_KEY) &&
+            !localStorage.getItem("bullet_tenant_default_v25")
+          );
         } catch (e) {
           return false;
         }
@@ -19597,10 +19626,12 @@
       function showTenantChooser() {
         gid("tenantChooser").style.display = "flex";
         let def = ((window.__defaultFirebase || {}).pos || window.POS_CONFIG || {}).cafeId || "";
-        gid("tcDefault").textContent = "Usar el negocio de esta instalación (" + def + ")";
+        gid("tcDefault").textContent = "Es un equipo de «" + def + "»";
         setSyncStatus("Activa este equipo", "Pega el código de activación de tu negocio");
       }
       function tenantChooserDefault() {
+        let def = ((window.__defaultFirebase || {}).pos || window.POS_CONFIG || {}).cafeId || "";
+        if (!confirm("¿Este equipo es de «" + def + "»?\n\nSi te enviaron un link de activación de otro negocio, cancela y abre ese link.")) return;
         try {
           localStorage.setItem("bullet_tenant_default_v25", "1");
         } catch (e) {}
@@ -20071,7 +20102,7 @@
       <div class="lock-box">
         <div class="lock-icon">🏪</div>
         <h2 style="color: var(--green)">Activa este equipo</h2>
-        <p class="sub">Pega el código de activación que te envió el proveedor (llega con el link de la app). En iPhone, la app instalada no comparte datos con Safari: por eso se pide aquí.</p>
+        <p class="sub">Este equipo aún no está vinculado a ningún negocio. Abre el link de activación que te envió el proveedor, o pega aquí el código (o el link completo). En iPhone, la app instalada no comparte datos con Safari: por eso se puede pedir otra vez aquí.</p>
         <textarea id="tcCode" class="field" placeholder="BPA1.… o el link completo con #activar="></textarea>
         <div class="modal-actions">
           <button class="btn primary" onclick="tenantChooserPaste()">Activar</button
@@ -20621,6 +20652,57 @@
         renderShiftScreen();
         if (deviceIsMain() && shiftReqs.length) renderShiftReqBanner();
       }, 3000);
+      // ===== Bullet POS 2.5.2: código del segundo PC Main con instrucciones =====
+      // Los equipos secundarios no ven Ajustes: el código se escribe en su panel
+      // de sincronización (indicador de arriba). La ventana lo explica.
+      let pairTimer = null;
+      function showPairCode(code, expires) {
+        let m = gid("pairModal");
+        if (!m) {
+          let d = document.createElement("div");
+          d.innerHTML =
+            '<div class="modal-back" id="pairModal"><div class="modal" style="width:min(520px,100%)">' +
+            "<h2>Código para el segundo PC Main</h2>" +
+            '<div id="pairCodeBig" style="font:800 38px/1.1 ui-monospace,monospace;letter-spacing:.14em;text-align:center;color:var(--green);margin:6px 0 4px"></div>' +
+            '<div id="pairLeft" class="sub" style="text-align:center"></div>' +
+            '<ol class="sub" style="margin:12px 0 0 18px;padding:0;line-height:1.55">' +
+            "<li>En el <b>otro equipo</b> (ya autorizado como dispositivo), toca el <b>indicador de sincronización</b> de arriba (el que dice «Sincronización activa» o el estado).</li>" +
+            "<li>Arriba del panel verás <b>«Vincular como segundo PC Main»</b>: escribe este código y pulsa <b>Vincular</b>.</li>" +
+            "<li>Ese equipo se recarga como PC Main. Sirve una sola vez.</li></ol>" +
+            '<div class="modal-actions"><button class="btn" id="pairCopy">Copiar código</button><button class="btn primary" onclick="closePairCode()">Listo</button></div>' +
+            "</div></div>";
+          document.body.appendChild(d.firstChild);
+          m = gid("pairModal");
+        }
+        let shown = code.slice(0, 4) + "-" + code.slice(4);
+        gid("pairCodeBig").textContent = shown;
+        gid("pairCopy").onclick = () =>
+          (navigator.clipboard ? navigator.clipboard.writeText(shown) : Promise.reject()).then(
+            () => toast("Código copiado"),
+            () => toast("Anota el código: " + shown),
+          );
+        const tick = () => {
+          let left = expires.getTime() - Date.now();
+          if (left <= 0) {
+            gid("pairLeft").textContent = "El código venció. Genera otro.";
+            gid("pairCodeBig").style.opacity = ".35";
+            clearInterval(pairTimer);
+            return;
+          }
+          gid("pairCodeBig").style.opacity = "1";
+          gid("pairLeft").textContent =
+            "Vence a las " + expires.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) + " (quedan " + Math.floor(left / 60000) + ":" + String(Math.floor((left % 60000) / 1000)).padStart(2, "0") + ")";
+        };
+        clearInterval(pairTimer);
+        tick();
+        pairTimer = setInterval(tick, 1000);
+        m.classList.add("show");
+      }
+      function closePairCode() {
+        clearInterval(pairTimer);
+        let m = gid("pairModal");
+        if (m) m.classList.remove("show");
+      }
       renderArchiveLog();
 
       renderProducts();

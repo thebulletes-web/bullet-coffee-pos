@@ -1,0 +1,11 @@
+# Nunca subir a GitHub (el repositorio es público):
+# - la clave privada del emisor de licencias
+*CLAVE-PRIVADA*
+*clave-privada*
+bullet-licencias-*.json
+# - la lista de clientes exportada desde el emisor
+bullet-clientes-*.json
+# - licencias descargadas y respaldos de negocios
+licencia-bullet-pos-*.json
+bullet-pos-respaldo*.json
+*.env
