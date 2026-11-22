@@ -140,7 +140,7 @@
         <a href="#inventario">13. Inventario y costos</a>
         <a href="#ajustes">14. Ajustes</a>
         <div class="grp">Ayuda</div>
-        <a href="#offline">15. Sin internet</a>
+        <a href="#offline">15. Sin internet y bloqueos</a>
         <a href="#seguridad">16. Buenas prácticas</a>
         <a href="#faq">17. Preguntas frecuentes</a>
         <a href="#glosario">18. Glosario</a>
@@ -153,7 +153,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.7.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.7.3</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -465,12 +465,47 @@
         </section>
 
         <section class="sec" id="offline">
-          <h2><span class="n">15</span> Trabajar sin internet</h2>
+          <h2><span class="n">15</span> Sin internet, bloqueos y equipos que dejan de funcionar</h2>
+          <p class="lead">Qué pasa cuando se va el internet, por qué se bloquea un equipo, por cuánto tiempo y qué hacer si uno se apaga, se daña o se pierde.</p>
+          <h3>Trabajar sin internet</h3>
           <ul>
-            <li>La app <b>sigue vendiendo sin internet</b>; las ventas se envían solas al volver la conexión, sin perderse ni duplicarse.</li>
-            <li>Cada equipo trabaja sin conexión hasta un <b>tiempo máximo</b> (ver Seguridad y operación). Después pide conectarse.</li>
+            <li>La app <b>sigue vendiendo sin internet</b>. Las ventas se guardan en el equipo y se envían solas al volver la conexión, sin perderse ni duplicarse.</li>
             <li>Las mesas compartidas y las solicitudes de cobro necesitan internet para verse en los otros equipos.</li>
+            <li>El indicador de sincronización de arriba muestra cuántas operaciones faltan por enviar.</li>
           </ul>
+          <h3>Tres bloqueos distintos</h3>
+          <div class="tw"><table>
+            <tr><th>Bloqueo</th><th>Cuándo pasa</th><th>Cómo se sale</th></tr>
+            <tr><td><b>Por inactividad (PIN)</b></td><td>Nadie usa el equipo durante unos minutos: 1, 2, 5 o 10, o nunca. Perfil pequeño: 5 min; con meseros: 2 min.</td><td>Escribiendo el PIN. No se pierde nada.</td></tr>
+            <tr><td><b>Plazo sin conexión vencido</b></td><td>El equipo lleva más del plazo elegido sin confirmar su autorización con internet.</td><td>Conectándolo a internet: se desbloquea solo en pocos minutos, o con <span class="btnname">Verificar ahora</span>.</td></tr>
+            <tr><td><b>Bloqueado por el PC Main</b></td><td>El PC Main lo revocó, lo reportó perdido o lo eliminó de la lista.</td><td>Solo el PC Main, autorizándolo de nuevo.</td></tr>
+          </table></div>
+          <h3>El plazo sin conexión</h3>
+          <ul>
+            <li>Con internet, cada equipo confirma solo su autorización cada 5 a 30 minutos, y el plazo vuelve a empezar. <b>Mientras haya internet, nunca vence.</b></li>
+            <li>El plazo cuenta desde la <b>última confirmación</b>, no desde que se fue el internet.</li>
+            <li>Se elige en <span class="btnname">Ajustes → Seguridad y operación</span>, uno para los equipos secundarios y otro para el PC Main: 1, 2, 4, 8 o 12 horas, o 1, 2, 3, 7, 14 o 30 días.</li>
+            <li>Perfiles: negocio pequeño, <b>3 días</b> en secundarios y <b>7 días</b> en el PC Main; con meseros, <b>8 horas</b> y <b>24 horas</b>.</li>
+            <li>Antes de que se acabe, el equipo avisa.</li>
+            <li><b>Cuando vence:</b> no deja empezar ventas nuevas, abrir mesas ni agregar productos. <b>Sí deja terminar lo empezado</b> (cobrar una mesa abierta, abonos), ver el historial y sacar respaldos. Lo vendido queda guardado y se envía al volver internet.</li>
+            <li>Atrasar la hora del equipo no alarga el plazo, y queda en la auditoría.</li>
+          </ul>
+          <div class="tip">Un plazo corto da más control: un equipo robado deja de vender pronto. Un plazo largo da más tranquilidad si el internet es inestable. Si el internet del negocio falla seguido, usa al menos 1 día.</div>
+          <h3>Cuando un equipo deja de funcionar</h3>
+          <p>Se apagó, se quedó sin batería, se dañó o se perdió:</p>
+          <ol>
+            <li><b>El PC Main lo ve «Desconectado»</b> en la supervisión de Ajustes → Equipos y personal, si pasan 3 minutos sin noticias. Muestra su último reporte y cuántas ventas tenía sin enviar en ese momento.</li>
+            <li><b>Sus ventas sin enviar quedan en ese equipo.</b> Llegan cuando vuelva a conectarse. Si no vuelve nunca, esas ventas se pierden; las que ya se habían enviado están a salvo.</li>
+            <li><b>Su turno queda abierto.</b> Ciérralo con <span class="btnname">Cerrar turno administrativamente</span> (Caja → Turnos, o desde el reinicio global). Si el equipo vuelve y envía ventas, llegan como <b>ventas tardías</b> para revisarlas.</li>
+            <li>Según el caso:
+              <ul>
+                <li><b>Se perdió o lo robaron:</b> <span class="btnname">Reportar perdido</span>. Se bloquea apenas tenga internet, borra los datos del negocio si lo pides y ofrece cerrar sus turnos. Si le quedaban ventas sin enviar, las conserva bloqueadas: no se borra lo que no llegó.</li>
+                <li><b>Se dañó o se reemplaza:</b> <span class="btnname">Revocar</span>, con motivo. Puedes darle <b>24 horas</b> para enviar lo pendiente (recomendado) y pedir que <b>borre sus datos</b> cuando ya no le quede nada por enviar.</li>
+                <li><b>No volverá a usarse:</b> después de revocarlo, <span class="btnname">Eliminar</span> lo quita de la lista y cierra sus turnos abiertos. Si ese equipo vuelve a abrir la app, se bloquea y aparece como solicitud nueva.</li>
+              </ul>
+            </li>
+          </ol>
+          <div class="warn"><b>Instalación no reconocida:</b> si un equipo aparece con otra identidad (por ejemplo, datos copiados de otro navegador), se bloquea. Revísalo y, si es correcto, en el PC Main usa <span class="btnname">Reconocer instalación</span>.</div>
         </section>
 
         <section class="sec" id="seguridad">
@@ -526,7 +561,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.7.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.7.3 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
