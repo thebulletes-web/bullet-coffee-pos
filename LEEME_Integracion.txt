@@ -1,6 +1,73 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.4.0 (inventario y costos; imprimir cierre de caja)
+------------------------------------------------------------
+Cambian index.html, sw.js y firestore.rules.
+
+IMPORTANTE AL PUBLICAR: pega el contenido de firestore.rules en Firebase >
+Firestore Database > Reglas > Publicar. Sin las reglas nuevas, el inventario
+funciona en el PC Main pero no se guarda en la nube (queda en «pendientes»).
+
+Pestaña «Inventario» (solo en los PC Main)
+- Cuatro tipos de elementos, con color propio: materia prima, insumos /
+  consumibles, preparaciones (sub-recetas) y productos de reventa. Los
+  productos de venta son los mismos del catálogo (no hay catálogo nuevo).
+- Cada elemento: nombre, tipo, categoría, unidad base (g, ml o unidades),
+  unidad de compra con su equivalencia (1 kg = 1.000 g, paquete x 50 = 50 u),
+  stock mínimo, proveedor y costo de compra. El stock y el costo promedio
+  ponderado se calculan solos.
+- Recetas por producto (toca la tarjeta del producto): costo, margen en
+  pesos y en %, y cuántas unidades se pueden preparar y qué lo limita.
+- Recetas con versiones: cada cambio crea una versión nueva con fecha. Las
+  ventas nuevas usan la versión vigente; las pasadas conservan la receta y el
+  costo con que se vendieron.
+- Tamaños y adiciones: hoy cada tamaño es un producto del catálogo con su
+  propia receta. Las adiciones (shot extra, cambio a leche vegetal) se crean
+  como productos (por ejemplo, categoría «Adiciones») y su receta puede
+  tener cantidades negativas para restar un ingrediente.
+- Preparaciones: receta de un lote y rendimiento. «Producir lote» descuenta
+  los ingredientes y entra el stock de la preparación a su costo.
+- Reventa sin receta (botella de agua): se descuenta 1 a 1 al venderla.
+
+Descuento automático
+- Cada venta guarda su consumo y su costo en ese momento (sale.inv). El
+  stock se calcula con los movimientos y las ventas válidas: sin conexión y
+  con varios equipos no se pierde ni se duplica nada. Anular una venta
+  devuelve lo que consumió.
+- Nunca se bloquea una venta por falta de stock: queda negativo, se marca en
+  rojo y la pestaña muestra un aviso en el PC Main.
+- Un equipo con «Cobro directo» también guarda el consumo (lee elementos y
+  recetas). Las ventas sin ese dato (anteriores a 2.4.0 o de equipos sin
+  recetas) se calculan con la receta vigente en su fecha.
+
+Movimientos (no se borran: «Corregir» crea un movimiento contrario)
+- Compra / entrada: cantidad en unidad de compra o base, costo total,
+  proveedor, fecha y factura opcional.
+- Merma con motivo (vencido, dañado, derramado, prueba/calibración,
+  cortesía, otro) y nota. Ajuste manual con motivo obligatorio.
+- Conteo físico: muestra la diferencia con el teórico y la registra.
+- Todos guardan quién, cuándo y desde qué equipo, y quedan en la auditoría.
+
+Reportes (con fechas y exportación a Excel)
+- Inventario y valor, stock bajo / negativo, consumo por periodo, costo y
+  margen por producto, costo de ventas vs. ingresos (ganancia bruta),
+  teórico vs. conteo, compras, mermas (en cantidad y dinero, por motivo),
+  ajustes y simulación de un periodo pasado con las recetas actuales (no
+  modifica nada). La exportación general a Excel incluye las hojas
+  Inventario, Movimientos inventario y Recetas.
+- Calculadora flotante con conversiones (kg↔g, L↔ml, oz↔ml, lb↔g) y botón
+  para pasar el resultado al campo que estás editando.
+
+Imprimir cierre de caja
+- Caja > «Imprimir cierre»: eliges el cierre (también anteriores o el corte
+  X de la caja abierta) y el formato: ticket 58 mm, 80 mm, carta o A4.
+- El reporte ahora incluye el detalle de cada movimiento de caja.
+
+Reinicio global: borra los movimientos de inventario (son historial) y
+conserva los elementos y las recetas. Después conviene hacer un conteo
+físico. El respaldo JSON incluye elementos, recetas y movimientos.
+
 VERSIÓN 2.3.4 (PIN sin nombres y corrección de «equipo nuevo»)
 --------------------------------------------------------------
 Solo cambian index.html y sw.js (las reglas son las mismas de 2.3.0).

@@ -2756,7 +2756,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.3.4",
+        APP_VERSION = "2.4.0",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -17082,6 +17082,2052 @@
       };
       Object.assign(AUDIT_LABEL, { licenseInstalled: "Licencia instalada desde archivo" });
 
+      // ===== Bullet POS 2.4.0: inventario, recetas y costos; impresión del cierre =====
+      // Diseño:
+      // - Elementos (invItems): materia prima, insumos/consumibles, preparaciones
+      //   intermedias (sub-recetas) y productos de reventa. Los productos de venta
+      //   son los mismos del catálogo (data.products): no hay catálogo nuevo.
+      // - Recetas versionadas (invRecipes): una por producto del catálogo o por
+      //   preparación. Cada cambio agrega una versión con fecha «desde»; nunca se
+      //   reescribe una versión anterior.
+      // - Movimientos (invMovements): compras, mermas, ajustes, conteos físicos y
+      //   lotes de producción. No se editan ni se borran: se corrigen con un
+      //   movimiento contrario. Solo un PC Main los crea (reglas de Firestore).
+      // - El consumo de una venta NO es un movimiento aparte: viaja dentro de la
+      //   propia venta (sale.inv = consumo, versión de receta y costo de ese
+      //   momento). El stock se calcula como movimientos + ventas no anuladas, así
+      //   que con varios equipos o sin conexión no se pierde ni se duplica ningún
+      //   descuento, y anular una venta devuelve su consumo automáticamente.
+      // - Las ventas antiguas (o de equipos sin recetas) se calculan con la versión
+      //   de receta vigente en su fecha: las recetas nuevas nunca cambian el pasado.
+      // - Nunca se bloquea una venta por falta de stock: puede quedar negativo.
+      const INV_KINDS = {
+          raw: { label: "Materia prima", short: "Materia prima", color: "#8a5a2b" },
+          supply: { label: "Insumo / consumible", short: "Insumo", color: "#3d6fa8" },
+          prep: { label: "Preparación (sub-receta)", short: "Preparación", color: "#7a4fa3" },
+          resale: { label: "Producto de reventa", short: "Reventa", color: "#2f8a6b" },
+        },
+        INV_PRODUCT_COLOR = "#173c35",
+        INV_UNITS = { g: "g", ml: "ml", u: "u" },
+        INV_MOVE_TYPES = {
+          purchase: "Compra / entrada",
+          waste: "Merma",
+          adjust: "Ajuste manual",
+          count: "Conteo físico",
+          produceIn: "Producción (entrada)",
+          produceOut: "Producción (consumo)",
+          sale: "Venta",
+        },
+        INV_WASTE_REASONS = ["Vencido", "Dañado", "Derramado", "Prueba / calibración", "Cortesía", "Otro"],
+        INV_PRESETS = [
+          ["", "Elegir…", "", ""],
+          ["kg", "Kilogramo (1 kg = 1.000 g)", "kg", 1000],
+          ["lb", "Libra (1 lb = 453,6 g)", "lb", 453.592],
+          ["L", "Litro (1 L = 1.000 ml)", "L", 1000],
+          ["gal", "Galón (1 gal = 3.785 ml)", "galón", 3785.41],
+          ["pack", "Paquete / caja (indica cuántas unidades trae)", "paquete", ""],
+          ["u", "Unidad (1 = 1)", "unidad", 1],
+        ];
+      let invItems = [],
+        invRecipes = [],
+        invMoves = [],
+        invState = null,
+        invSalesAll = [],
+        invFilter = "all",
+        invSearch = "",
+        invNegSeen = null,
+        invDerived = new Map(),
+        invEditing = null,
+        invRecipeTarget = null,
+        invMoveType = null,
+        invCalcTarget = null;
+
+      // --- Utilidades ---
+      function invNum(v) {
+        if (v == null || v === "") return NaN;
+        let n = Number(String(v).replace(",", "."));
+        return Number.isFinite(n) ? n : NaN;
+      }
+      function invR(n, d) {
+        let f = Math.pow(10, d == null ? 3 : d);
+        return Math.round((Number(n) || 0) * f) / f;
+      }
+      function invFmtN(n, d) {
+        return (Number(n) || 0).toLocaleString("es-CO", { maximumFractionDigits: d == null ? 2 : d });
+      }
+      function invFmtQ(q, unit) {
+        return invFmtN(q) + " " + (INV_UNITS[unit] || unit || "");
+      }
+      function invItem(id) {
+        return invItems.find((x) => x.id === id) || null;
+      }
+      function invActiveItems() {
+        return invItems.filter((x) => x.active !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+      }
+      function invGen() {
+        return typeof dataGen === "function" ? dataGen() : 0;
+      }
+      function invRef(col) {
+        return cloudRoot().collection(col);
+      }
+      function invPersist() {
+        BulletStore.putMeta("invItems", invItems).catch(() => {});
+        BulletStore.putMeta("invRecipes", invRecipes).catch(() => {});
+        BulletStore.putMeta("invMoves", invMoves).catch(() => {});
+      }
+      // Cambios propios aún sin confirmar por el servidor: una instantánea que
+      // llegue antes de la confirmación no los borra de la pantalla.
+      const invPend = new Map();
+      async function invSave(col, doc) {
+        if (!firebaseConfigured()) return;
+        invPend.set(col + "/" + doc.id, doc);
+        await BulletSync.enqueueDoc(col, doc.id, doc, { kind: "inv" });
+      }
+      function invWho(m) {
+        return typeof personLabel === "function" ? personLabel(m.deviceId, m.deviceName, m.operator) : m.operator || m.deviceName || "—";
+      }
+      function invProdKey(p) {
+        return String(p.id || "name:" + p.name).replace(/\//g, "_");
+      }
+      function invProductByName(name) {
+        return (data.products || []).find((p) => p.name === name) || null;
+      }
+      function invProductByKey(k) {
+        return (data.products || []).find((p) => invProdKey(p) === k) || null;
+      }
+      function invRecipeId(targetType, targetId) {
+        return (targetType === "prep" ? "x_" : "p_") + String(targetId).replace(/\//g, "_");
+      }
+      function invRecipeFor(targetType, targetId) {
+        let id = invRecipeId(targetType, targetId);
+        return invRecipes.find((r) => r.id === id) || null;
+      }
+      function invVersionAt(rec, t) {
+        if (!rec || !Array.isArray(rec.versions)) return null;
+        let best = null;
+        rec.versions.forEach((v) => {
+          let f = Date.parse(v.from);
+          if (Number.isFinite(f) && f <= t && (!best || f >= Date.parse(best.from))) best = v;
+        });
+        return best;
+      }
+      function invCurrentVersion(rec) {
+        return invVersionAt(rec, Infinity);
+      }
+      function invResaleFor(p, t) {
+        let k = invProdKey(p);
+        return (
+          invItems.find(
+            (x) => x.kind === "resale" && x.productId === k && x.active !== false && (t == null || !x.createdAt || Date.parse(x.createdAt) <= t),
+          ) || null
+        );
+      }
+      function invBaseCost(it) {
+        let f = Number(it && it.purchaseFactor) || 1,
+          c = Number(it && it.purchaseCost) || 0;
+        return c > 0 ? c / f : 0;
+      }
+      function invAvg(id) {
+        if (invState && invState.avg[id] != null) return invState.avg[id];
+        let it = invItem(id);
+        return it ? Number(it.avgCost) || invBaseCost(it) : 0;
+      }
+      function invStock(id) {
+        return (invState && invState.stock[id]) || 0;
+      }
+
+      // --- Consumo de una venta ---
+      // Receta vigente en la fecha t para un producto vendido n veces.
+      function invLinesForProduct(p, n, t) {
+        let rec = invRecipeFor("product", invProdKey(p)),
+          v = invVersionAt(rec, t);
+        if (v && Array.isArray(v.lines) && v.lines.length)
+          return { v: v.v, lines: v.lines.map((l) => ({ itemId: l.itemId, qty: (Number(l.qty) || 0) * n })) };
+        let rs = invResaleFor(p, t);
+        if (rs) return { v: "reventa", lines: [{ itemId: rs.id, qty: n }] };
+        return null;
+      }
+      function invSaleSnapshot(sale) {
+        let t = Date.parse(sale && sale.date) || Date.now(),
+          agg = new Map(),
+          detail = [],
+          cogs = 0;
+        ((sale && sale.items) || []).forEach((x) => {
+          let p = invProductByName(x.name),
+            n = Number(x.qty) || 0;
+          if (!p || !n) return;
+          let r = invLinesForProduct(p, n, t);
+          if (!r) return;
+          let c = 0;
+          r.lines.forEach((l) => {
+            if (!invItem(l.itemId) || !l.qty) return;
+            agg.set(l.itemId, (agg.get(l.itemId) || 0) + l.qty);
+            c += l.qty * invAvg(l.itemId);
+          });
+          cogs += c;
+          detail.push({ productId: invProdKey(p), name: x.name, qty: n, v: r.v, unitCost: invR(c / n, 2) });
+        });
+        if (!agg.size) return null;
+        return {
+          at: new Date().toISOString(),
+          lines: [...agg].map(([itemId, qty]) => ({ itemId, qty: invR(qty) })),
+          cogs: Math.round(cogs),
+          detail,
+        };
+      }
+      // Consumo de una venta: el guardado en la venta, o el calculado con la
+      // receta vigente en su fecha (ventas anteriores a 2.4.0 o sin recetas).
+      function invSaleInfo(s) {
+        if (s && s.inv && Array.isArray(s.inv.lines)) return { lines: s.inv.lines, detail: s.inv.detail || [], cogs: Number(s.inv.cogs) || 0, saved: true };
+        let k = String(s && s.id);
+        if (!invDerived.has(k)) {
+          let snap = null;
+          try {
+            snap = invSaleSnapshot(s);
+          } catch (e) {}
+          invDerived.set(k, snap ? { lines: snap.lines, detail: snap.detail, cogs: snap.cogs, saved: false } : { lines: [], detail: [], cogs: 0, saved: false });
+        }
+        return invDerived.get(k);
+      }
+
+      // --- Cálculo de stock y costo promedio ponderado ---
+      // Se recorren en orden de fecha los movimientos y los consumos de las
+      // ventas válidas. Compras y lotes producidos actualizan el costo promedio
+      // ponderado; el resto sale (o entra) al costo promedio de ese momento.
+      function invCompute(sales) {
+        let g = invGen(),
+          stock = {},
+          avg = {},
+          ev = [],
+          saleCogs = {},
+          list = [];
+        invItems.forEach((it) => {
+          stock[it.id] = 0;
+          avg[it.id] = invBaseCost(it) || Number(it.avgCost) || 0;
+        });
+        invMoves.forEach((m) => {
+          if (!m || (Number(m.gen) || 0) < g) return;
+          list.push({ t: Date.parse(m.at) || Date.parse(m.createdAt) || 0, o: 0, c: String(m.createdAt || ""), m });
+        });
+        (sales || []).forEach((s) => {
+          if (!s || s.voided || (Number(s.gen) || 0) < g) return;
+          let info = invSaleInfo(s);
+          if (info.lines.length) list.push({ t: Date.parse(s.date) || 0, o: 1, c: String(s.date || ""), s, info });
+        });
+        list.sort((a, b) => a.t - b.t || a.o - b.o || a.c.localeCompare(b.c));
+        list.forEach((e) => {
+          if (e.m) {
+            let m = e.m,
+              id = m.itemId,
+              q = Number(m.qty) || 0,
+              before = stock[id] || 0,
+              a = avg[id] || 0,
+              val;
+            if ((m.type === "purchase" || m.type === "produceIn") && Number.isFinite(Number(m.cost))) {
+              let pos = Math.max(0, before),
+                nq = pos + q,
+                c = Number(m.cost);
+              if (nq > 0) avg[id] = Math.max(0, (pos * a + c) / nq);
+              val = c;
+            } else val = q * a;
+            stock[id] = before + q;
+            ev.push({ t: e.t, type: m.type, itemId: id, qty: q, value: val, m, after: stock[id] });
+          } else {
+            let cogs = 0;
+            e.info.lines.forEach((l) => {
+              let id = l.itemId,
+                q = Number(l.qty) || 0,
+                a = avg[id] || 0;
+              stock[id] = (stock[id] || 0) - q;
+              cogs += q * a;
+              ev.push({ t: e.t, type: "sale", itemId: id, qty: -q, value: -q * a, s: e.s, after: stock[id] });
+            });
+            saleCogs[String(e.s.id)] = e.info.saved ? e.info.cogs : Math.round(cogs);
+          }
+        });
+        return { stock, avg, ev, saleCogs, at: Date.now() };
+      }
+      async function invLoadSales() {
+        let m = new Map();
+        try {
+          (await BulletStore.all("sales")).forEach((s) => s && s.id != null && m.set(String(s.id), s));
+        } catch (e) {}
+        (data.sales || []).forEach((s) => s && s.id != null && m.set(String(s.id), s));
+        invSalesAll = [...m.values()];
+        return invSalesAll;
+      }
+      let invRefreshT = null;
+      function invRefresh(delay) {
+        clearTimeout(invRefreshT);
+        invRefreshT = setTimeout(() => invRefreshNow().catch((e) => console.warn("Inventario:", e)), delay == null ? 300 : delay);
+      }
+      async function invRefreshNow() {
+        if (!deviceIsMain()) {
+          invRenderTabBadge();
+          return null;
+        }
+        await invLoadSales();
+        invState = invCompute(invSalesAll);
+        invCheckNegatives();
+        invRenderTabBadge();
+        if (gid("inventario") && gid("inventario").classList.contains("active")) invRender();
+        return invState;
+      }
+      function invNegatives() {
+        return invState ? invActiveItems().filter((it) => (invState.stock[it.id] || 0) < -1e-9) : [];
+      }
+      function invLows() {
+        return invState
+          ? invActiveItems().filter((it) => {
+              let s = invState.stock[it.id] || 0,
+                mn = Number(it.minStock) || 0;
+              return s >= -1e-9 && mn > 0 && s < mn;
+            })
+          : [];
+      }
+      // Aviso al Main cuando un elemento pasa a stock negativo.
+      function invCheckNegatives() {
+        let neg = invNegatives(),
+          fresh = invNegSeen ? neg.filter((it) => !invNegSeen.has(it.id)) : neg;
+        invNegSeen = new Set(neg.map((x) => x.id));
+        if (fresh.length && deviceIsMain())
+          toast("⚠ Stock negativo: " + fresh.map((it) => it.name + " (" + invFmtQ(invState.stock[it.id], it.baseUnit) + ")").join(", "));
+      }
+      function invRenderTabBadge() {
+        let b = gid("invTab");
+        if (!b) return;
+        let n = invNegatives().length,
+          l = invLows().length;
+        b.innerHTML =
+          "Inventario" +
+          (n ? ' <span class="inv-badge" title="Elementos con stock negativo">' + n + "</span>" : "") +
+          (l ? ' <span class="inv-badge low" title="Elementos bajo el mínimo">' + l + "</span>" : "");
+      }
+
+      // --- Guardado ---
+      async function invSaveItemDoc(it) {
+        it.updatedAt = new Date().toISOString();
+        let i = invItems.findIndex((x) => x.id === it.id);
+        if (i < 0) invItems.push(it);
+        else invItems[i] = it;
+        invDerived.clear();
+        invPersist();
+        await invSave("invItems", it);
+      }
+      async function invAddMoves(list, auditType, auditDetails) {
+        let now = new Date().toISOString(),
+          base = {
+            createdAt: now,
+            deviceId: currentDeviceId(),
+            deviceName: BulletSupervision.myName(),
+            operator: operatorName() || null,
+            gen: invGen(),
+            appVersion: APP_VERSION,
+          };
+        list = list.map((m) => ({ id: makeId(), at: now, ...base, ...m, itemName: (invItem(m.itemId) || {}).name || m.itemName || "" }));
+        invMoves = invMoves.concat(list);
+        invPersist();
+        for (let m of list) await invSave("invMovements", m);
+        BulletAudit.record(auditType, {
+          ...(auditDetails || {}),
+          moves: list.map((m) => ({ id: m.id, type: m.type, itemId: m.itemId, item: m.itemName, qty: m.qty, cost: m.cost != null ? m.cost : null, reason: m.reason || null })),
+        });
+        await invRefreshNow();
+        await invSyncAvgCosts(list.filter((m) => m.type === "purchase" || m.type === "produceIn").map((m) => m.itemId));
+        return list;
+      }
+      // El costo promedio se copia en el elemento para que los equipos con
+      // «Cobro directo» guarden el costo de sus ventas sin leer los movimientos.
+      async function invSyncAvgCosts(ids) {
+        if (!invState) return;
+        for (let id of [...new Set(ids)]) {
+          let it = invItem(id),
+            a = invR(invState.avg[id] || 0, 4);
+          if (it && Math.abs((Number(it.avgCost) || 0) - a) > 0.0001) await invSaveItemDoc({ ...it, avgCost: a });
+        }
+      }
+      async function invSaveRecipeVersion(targetType, targetId, lines, extra, note) {
+        let id = invRecipeId(targetType, targetId),
+          old = invRecipes.find((r) => r.id === id),
+          rec = old || { id, targetType, targetId: String(targetId), versions: [], createdAt: new Date().toISOString() },
+          v = {
+            v: rec.versions.reduce((a, x) => Math.max(a, Number(x.v) || 0), 0) + 1,
+            from: new Date().toISOString(),
+            lines: lines.map((l) => ({ itemId: l.itemId, qty: invR(l.qty) })),
+            note: note || "",
+            by: currentDeviceId(),
+            byName: BulletSupervision.myName(),
+            operator: operatorName() || null,
+            ...(extra || {}),
+          };
+        rec = { ...rec, versions: rec.versions.concat([v]), updatedAt: v.from };
+        invRecipes = invRecipes.filter((r) => r.id !== id).concat([rec]);
+        invDerived.clear();
+        invPersist();
+        await invSave("invRecipes", rec);
+        BulletAudit.record("invRecipeVersion", {
+          recipeId: id,
+          targetType,
+          targetId: String(targetId),
+          version: v.v,
+          lines: v.lines.map((l) => ({ item: (invItem(l.itemId) || {}).name || l.itemId, qty: l.qty })),
+          yield: v.yield != null ? v.yield : null,
+          note: v.note,
+        });
+        return rec;
+      }
+
+      // --- Sincronización ---
+      function invMergeSnap(col, snap, local) {
+        let server = snap.docs.map((d) => ({ ...d.data(), id: d.id })),
+          byId = new Map(server.map((x) => [x.id, x]));
+        for (let [k, d] of invPend) {
+          if (!k.startsWith(col + "/")) continue;
+          let s = byId.get(d.id);
+          if (s && String(s.updatedAt || "") >= String(d.updatedAt || "")) invPend.delete(k);
+        }
+        let out = server.map((x) => invPend.get(col + "/" + x.id) || x);
+        return out.concat(local.filter((x) => !byId.has(x.id) && (invPend.has(col + "/" + x.id) || opPending(col + "/" + x.id))));
+      }
+      const _startV2Listeners240 = startV2Listeners;
+      startV2Listeners = function () {
+        _startV2Listeners240();
+        v2Listen("invItems", () => invRef("invItems"), (s) => {
+          invItems = invMergeSnap("invItems", s, invItems);
+          invDerived.clear();
+          invPersist();
+          invRefresh();
+        });
+        v2Listen("invRecipes", () => invRef("invRecipes"), (s) => {
+          invRecipes = invMergeSnap("invRecipes", s, invRecipes);
+          invDerived.clear();
+          invPersist();
+          invRefresh();
+        });
+        if (deviceIsMain())
+          v2Listen("invMoves", () => invRef("invMovements"), (s) => {
+            let g = invGen();
+            invMoves = invMergeSnap("invMovements", s, invMoves).filter((m) => (Number(m.gen) || 0) >= g);
+            invPersist();
+            invRefresh();
+          });
+        else v2Unlisten("invMoves");
+      };
+      // Reinicio global: los movimientos de inventario son historial (se borran
+      // con la generación anterior); elementos y recetas se conservan.
+      GEN_COLLECTIONS.push("invMovements");
+      GEN_LABELS.invMovements = "movimientos de inventario";
+      GEN_DATA_COLS.push("invMovements");
+
+      // Cada venta nueva guarda su consumo y su costo en ese momento.
+      const _saveNewSale240 = BulletStore.saveNewSale;
+      BulletStore.saveNewSale = async function (sale) {
+        if (sale && !sale.voided && !sale.inv) {
+          try {
+            let snap = invSaleSnapshot(sale);
+            if (snap) sale.inv = snap;
+          } catch (e) {
+            console.warn("Inventario (venta):", e);
+          }
+        }
+        let r = await _saveNewSale240(sale);
+        if (deviceIsMain()) invRefresh(400);
+        return r;
+      };
+      const _confirmVoid240 = confirmVoid;
+      confirmVoid = function () {
+        let r = _confirmVoid240.apply(this, arguments);
+        invRefresh(300);
+        return r;
+      };
+      // Respaldo JSON: incluye elementos, recetas y movimientos.
+      const _backupExtras240 = BulletStore.backupExtras;
+      BulletStore.backupExtras = async function () {
+        let x = await _backupExtras240();
+        x.inventory = { items: invItems, recipes: invRecipes, movements: invMoves };
+        return x;
+      };
+      const _restoreExtras240 = BulletStore.restoreExtras;
+      BulletStore.restoreExtras = async function (x) {
+        await _restoreExtras240(x);
+        try {
+          let inv = x && x.inventory;
+          if (!inv) return;
+          const add = (cur, list) => {
+            let have = new Set(cur.map((v) => v.id));
+            return cur.concat((Array.isArray(list) ? list : []).filter((v) => v && v.id && !have.has(v.id)));
+          };
+          let ni = add(invItems, inv.items),
+            nr = add(invRecipes, inv.recipes),
+            added = ni.slice(invItems.length).concat(nr.slice(invRecipes.length));
+          invItems = ni;
+          invRecipes = nr;
+          // Los movimientos de otra generación no se pueden volver a subir.
+          if (!firebaseConfigured()) invMoves = add(invMoves, inv.movements);
+          invPersist();
+          if (firebaseConfigured() && deviceIsMain())
+            for (let d of added) await invSave(d.versions ? "invRecipes" : "invItems", d);
+          invRefresh();
+        } catch (e) {
+          console.warn("Restaurar inventario:", e);
+        }
+      };
+
+      // --- Interfaz: estilos, pestaña, sección y ventanas ---
+      const INV_CSS = `
+      .inv-chips{display:flex;gap:8px;overflow:auto;padding-bottom:10px;flex-wrap:wrap}
+      .inv-chip{white-space:nowrap;padding:8px 13px;border-radius:99px;background:#f0f1eb;color:#56645e;font-weight:600;border-left:5px solid var(--k,#999)}
+      .inv-chip.active{background:var(--green);color:#fff}
+      .inv-card{border-left:6px solid var(--k,#999);min-height:120px;position:relative}
+      .inv-kind{font-size:10.5px;font-weight:800;color:var(--k);text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px}
+      .inv-stock{font-weight:800;font-size:17px;color:var(--green);margin-top:8px}
+      .inv-stock.low{color:var(--orange)}
+      .inv-stock.neg{color:var(--red)}
+      .inv-card.neg{background:#fdf1ef;border-color:#e8b9b3}
+      .inv-card.off{opacity:.55}
+      .inv-meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+      .inv-new{border:2px dashed #b9c6bf;align-items:center;justify-content:center;color:var(--green);font-weight:800;text-align:center}
+      .inv-alert{border-radius:12px;padding:10px 12px;margin:0 0 10px;font-size:13.5px}
+      .inv-alert.neg{background:#fdf1ef;color:#8d2f27;border:1px solid #efc5bf}
+      .inv-alert.low{background:#fdf6ec;color:#8a5317;border:1px solid #f0d6b4}
+      .inv-badge{display:inline-block;background:var(--red);color:#fff;border-radius:99px;padding:0 6px;font-size:11px;line-height:17px;min-width:17px;text-align:center}
+      .inv-badge.low{background:var(--orange)}
+      .modal.inv-wide{width:min(860px,100%);max-height:92vh;overflow:auto}
+      .inv-line{display:grid;grid-template-columns:1fr 110px 44px 34px;gap:6px;margin-bottom:6px;align-items:center}
+      .inv-line .u{font-size:12px;color:var(--muted)}
+      .inv-x{background:#f3e3e1;color:var(--red);border-radius:8px;height:34px;font-weight:800}
+      .inv-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:10px 0}
+      .inv-kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 11px}
+      .inv-kpi span{display:block;font-size:11.5px;color:var(--muted)}
+      .inv-kpi strong{font-size:16px}
+      .inv-kpi.bad strong{color:var(--red)}
+      .inv-kpi.good strong{color:var(--green)}
+      .inv-hist{font-size:12.5px}
+      .inv-hist td,.inv-hist th{padding:5px 6px}
+      td.neg,.inv-neg{color:var(--red);font-weight:700}
+      td.low{color:var(--orange);font-weight:700}
+      .inv-tools{display:flex;gap:6px;flex-wrap:wrap}
+      #invCalc{position:fixed;right:16px;bottom:16px;z-index:60;width:300px;max-width:calc(100vw - 24px);background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 40px #20312d40;padding:12px;display:none}
+      #invCalc.show{display:block}
+      #invCalc .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:800}
+      #invCalcDisp{font:700 22px/1.2 ui-monospace,monospace;text-align:right}
+      #invCalcRes{text-align:right;color:var(--muted);font-size:13px;min-height:18px;margin:3px 2px 6px}
+      .inv-keys{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+      .inv-keys button{padding:11px 0;border-radius:10px;background:#f0f1eb;font-weight:800;font-size:16px}
+      .inv-keys button.op{background:#e4ece6;color:var(--green)}
+      .inv-keys button.eq{background:var(--green);color:#fff}
+      .inv-conv{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:8px 0}
+      .inv-conv button{font-size:11.5px;padding:7px 2px;border-radius:8px;background:#eaf0eb;color:var(--green);font-weight:700}
+      #invCalcTarget{font-size:11.5px;color:var(--muted);margin:4px 0}
+      .inv-calc-btn{position:fixed;right:16px;bottom:16px;z-index:55;border-radius:99px;background:var(--green);color:#fff;padding:12px 16px;font-weight:800;box-shadow:var(--shadow);display:none}
+      body.inv-on .inv-calc-btn{display:block}
+      @media print{
+        #printReceipt.pf-a4{width:auto;max-width:180mm;font:11pt/1.35 "Courier New",ui-monospace,monospace}
+        #printReceipt.pf-a4 .pr-head{font-size:16pt;text-align:left}
+      }`;
+      const INV_SECTION_HTML = `
+          <div class="topline">
+            <div>
+              <h1>Inventario y costos</h1>
+              <div class="sub">Materia prima, insumos, preparaciones y recetas. Cada venta descuenta su receta.</div>
+            </div>
+            <div class="inv-tools">
+              <button class="btn primary" onclick="invOpenItem()">＋ Elemento</button
+              ><button class="btn" onclick="invOpenMove('purchase')">Compra</button
+              ><button class="btn" onclick="invOpenMove('waste')">Merma</button
+              ><button class="btn" onclick="invOpenMove('adjust')">Ajuste</button
+              ><button class="btn" onclick="invOpenMove('produce')">Producir lote</button
+              ><button class="btn" onclick="invOpenCount()">Conteo físico</button
+              ><button class="btn" onclick="invOpenReports()">Reportes</button
+              ><button class="btn" onclick="invToggleCalc()">🧮 Calculadora</button>
+            </div>
+          </div>
+          <div id="invAlerts"></div>
+          <div id="invKpis" class="inv-kpis"></div>
+          <input id="invSearchBox" class="search" placeholder="Buscar elemento o producto..." oninput="invSearch=this.value;invRender()" />
+          <div id="invChips" class="inv-chips"></div>
+          <div id="invGrid" class="products"></div>
+          <p class="notice">
+            El stock se calcula con los movimientos (compras, mermas, ajustes, conteos y lotes) y con las ventas válidas.
+            Nunca se bloquea una venta por falta de stock: si queda negativo se marca en rojo.
+            Los movimientos no se borran: se corrigen con un movimiento contrario desde el detalle del elemento.
+          </p>`;
+      const INV_MODALS_HTML = `
+    <div class="modal-back" id="invItemModal">
+      <div class="modal inv-wide">
+        <h2 id="invItTitle">Nuevo elemento</h2>
+        <div class="form-grid">
+          <div class="wide"><label>Nombre</label><input id="invItName" class="field" maxlength="80" placeholder="Ej. Café de origen" /></div>
+          <div><label>Tipo</label><select id="invItKind" class="field" onchange="invItemKindUI()"></select></div>
+          <div><label>Categoría</label><input id="invItCat" class="field" maxlength="60" placeholder="Ej. Café, Lácteos, Empaques" /></div>
+          <div><label>Unidad base (con la que se descuenta)</label><select id="invItBase" class="field" onchange="invItemKindUI()"><option value="g">gramos (g)</option><option value="ml">mililitros (ml)</option><option value="u">unidades (u)</option></select></div>
+          <div><label>Unidad de compra</label><select id="invItPreset" class="field" onchange="invApplyPreset()"></select></div>
+          <div><label>Nombre de la unidad de compra</label><input id="invItPU" class="field" maxlength="30" placeholder="kg, L, paquete x 50…" /></div>
+          <div><label id="invItPFLabel">Equivale a (unidad base)</label><input id="invItPF" class="field" type="number" min="0" step="any" placeholder="1000" /></div>
+          <div><label>Costo de compra por unidad de compra (COP)</label><input id="invItPC" class="field" type="number" min="0" step="any" placeholder="Ej. 60000" /></div>
+          <div><label id="invItMinLabel">Stock mínimo</label><input id="invItMin" class="field" type="number" min="0" step="any" placeholder="0" /></div>
+          <div><label>Proveedor</label><input id="invItSup" class="field" maxlength="80" /></div>
+          <div class="wide" id="invItProdRow"><label>Producto del catálogo que se vende (se descuenta 1 a 1)</label><select id="invItProd" class="field"></select></div>
+          <div class="wide" id="invItPrepRow">
+            <label>Receta del lote (ingredientes por lote)</label>
+            <div id="invItLines"></div>
+            <button class="btn small" type="button" onclick="invAddLine('invItLines')">＋ Ingrediente</button>
+            <div class="form-grid" style="margin-top:8px">
+              <div><label id="invItYieldLabel">Rendimiento por lote</label><input id="invItYield" class="field" type="number" min="0" step="any" oninput="invPrepPreview()" /></div>
+              <div><label>Nota del cambio de receta (opcional)</label><input id="invItNote" class="field" maxlength="120" /></div>
+            </div>
+            <div id="invItPrepInfo" class="sub"></div>
+          </div>
+          <div class="wide"><label><input type="checkbox" id="invItActive" checked /> Activo (desmárcalo para ocultarlo sin perder su historial)</label></div>
+        </div>
+        <div id="invItInfo" class="inv-kpis"></div>
+        <div id="invItQuick" class="actions" style="margin:8px 0"></div>
+        <div id="invItHist"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('invItemModal')">Cerrar</button
+          ><button class="btn" onclick="invToggleCalc(true)">🧮</button
+          ><button class="btn primary" id="invItSave" onclick="invSaveItem()">Guardar elemento</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="invRecipeModal">
+      <div class="modal inv-wide">
+        <h2 id="invRcTitle">Receta</h2>
+        <div class="sub" id="invRcSub"></div>
+        <div style="margin-top:10px"><label class="sub">Ingredientes por unidad vendida</label></div>
+        <div id="invRcLines"></div>
+        <button class="btn small" type="button" onclick="invAddLine('invRcLines')">＋ Ingrediente</button>
+        <div class="form-grid" style="margin-top:10px">
+          <div class="wide"><label>Nota del cambio (opcional)</label><input id="invRcNote" class="field" maxlength="120" placeholder="Ej. café de 20 g a 18 g" /></div>
+        </div>
+        <div id="invRcPreview" class="inv-kpis"></div>
+        <p class="notice">Al guardar se crea una versión nueva: las ventas desde ahora usan esta receta; las ventas pasadas conservan la receta y el costo con que se vendieron. En las adiciones (shot extra, cambio de leche) puedes usar cantidades negativas para restar un ingrediente.</p>
+        <div id="invRcVersions"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('invRecipeModal')">Cerrar</button
+          ><button class="btn" onclick="invToggleCalc(true)">🧮</button
+          ><button class="btn primary" onclick="invSaveRecipe()">Guardar nueva versión</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="invMoveModal">
+      <div class="modal inv-wide">
+        <h2 id="invMvTitle">Movimiento</h2>
+        <div id="invMvBody" class="form-grid"></div>
+        <div id="invMvPreview" class="sub" style="margin-top:8px"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('invMoveModal')">Cancelar</button
+          ><button class="btn" onclick="invToggleCalc(true)">🧮</button
+          ><button class="btn primary" id="invMvSave" onclick="invSaveMove()">Registrar</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="invCountModal">
+      <div class="modal inv-wide">
+        <h2>Conteo físico</h2>
+        <div class="sub">Escribe lo que realmente hay. Solo se registran los elementos con cantidad contada; la diferencia con el inventario teórico queda como ajuste.</div>
+        <div class="form-grid" style="margin:10px 0">
+          <div><label>Mostrar</label><select id="invCtKind" class="field" onchange="invRenderCount()"></select></div>
+          <div><label>Nota (opcional)</label><input id="invCtNote" class="field" maxlength="120" placeholder="Ej. conteo de cierre de mes" /></div>
+        </div>
+        <div class="table-wrap"><table class="inv-hist"><thead><tr><th>Elemento</th><th>Teórico</th><th>Contado</th><th>Diferencia</th><th>Valor</th></tr></thead><tbody id="invCtRows"></tbody></table></div>
+        <div id="invCtSum" class="sub" style="margin-top:8px"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('invCountModal')">Cancelar</button
+          ><button class="btn" onclick="invToggleCalc(true)">🧮</button
+          ><button class="btn primary" onclick="invSaveCount()">Registrar conteo</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="invReportModal">
+      <div class="modal inv-wide" style="width:min(1100px,100%)">
+        <h2>Reportes de inventario y costos</h2>
+        <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr">
+          <div><label>Reporte</label><select id="invRpKind" class="field" onchange="invRunReport()"></select></div>
+          <div><label>Desde</label><input id="invRpFrom" class="field" type="date" onchange="invRunReport()" /></div>
+          <div><label>Hasta</label><input id="invRpTo" class="field" type="date" onchange="invRunReport()" /></div>
+        </div>
+        <div id="invRpSum"></div>
+        <div id="invRpOut" class="table-wrap" style="margin-top:8px"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('invReportModal')">Cerrar</button
+          ><button class="btn primary" onclick="invReportExcel()">Exportar a Excel</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="cashPrintModal">
+      <div class="modal">
+        <h2>Imprimir cierre de caja</h2>
+        <div class="form-grid">
+          <div class="wide"><label>Cierre</label><select id="cpSession" class="field"></select></div>
+          <div class="wide"><label>Formato</label><select id="cpFormat" class="field">
+            <option value="58">Ticket térmico 58 mm</option>
+            <option value="80">Ticket térmico 80 mm</option>
+            <option value="letter">Hoja carta</option>
+            <option value="a4">Hoja A4</option>
+          </select></div>
+        </div>
+        <p class="notice">Incluye fecha, responsable, base inicial, ventas por método de pago, propinas, movimientos de caja, esperado vs. contado, diferencia y firma.</p>
+        <div class="modal-actions">
+          <button class="btn" onclick="invClose('cashPrintModal')">Cancelar</button
+          ><button class="btn primary" onclick="cashPrintRun()">Imprimir</button>
+        </div>
+      </div>
+    </div>
+    <div id="invCalc">
+      <div class="head"><span>🧮 Calculadora</span><button class="btn small" onclick="invToggleCalc(false)">✕</button></div>
+      <input id="invCalcDisp" class="field" autocomplete="off" inputmode="decimal" placeholder="0" oninput="invCalcPreview()" onkeydown="invCalcKey(event)" />
+      <div id="invCalcRes"></div>
+      <div class="inv-keys">
+        <button onclick="invCalcPress('7')">7</button><button onclick="invCalcPress('8')">8</button><button onclick="invCalcPress('9')">9</button><button class="op" onclick="invCalcPress('/')">÷</button>
+        <button onclick="invCalcPress('4')">4</button><button onclick="invCalcPress('5')">5</button><button onclick="invCalcPress('6')">6</button><button class="op" onclick="invCalcPress('*')">×</button>
+        <button onclick="invCalcPress('1')">1</button><button onclick="invCalcPress('2')">2</button><button onclick="invCalcPress('3')">3</button><button class="op" onclick="invCalcPress('-')">−</button>
+        <button onclick="invCalcPress('0')">0</button><button onclick="invCalcPress('.')">,</button><button class="op" onclick="invCalcPress('C')">C</button><button class="op" onclick="invCalcPress('+')">+</button>
+        <button class="op" onclick="invCalcPress('(')">(</button><button class="op" onclick="invCalcPress(')')">)</button><button class="op" onclick="invCalcPress('B')">⌫</button><button class="eq" onclick="invCalcPress('=')">=</button>
+      </div>
+      <div class="inv-conv">
+        <button onclick="invCalcConv(1000)">kg→g</button><button onclick="invCalcConv(1 / 1000)">g→kg</button><button onclick="invCalcConv(1000)">L→ml</button><button onclick="invCalcConv(1 / 1000)">ml→L</button>
+        <button onclick="invCalcConv(29.5735)">oz→ml</button><button onclick="invCalcConv(1 / 29.5735)">ml→oz</button><button onclick="invCalcConv(453.592)">lb→g</button><button onclick="invCalcConv(1 / 453.592)">g→lb</button>
+      </div>
+      <div id="invCalcTarget">Toca un campo numérico para poder pasarle el resultado.</div>
+      <button class="btn primary" style="width:100%" onclick="invCalcUse()">Pasar resultado al campo</button>
+    </div>
+    <button class="inv-calc-btn" onclick="invToggleCalc()">🧮</button>`;
+      function invMountUI() {
+        if (gid("inventario")) return;
+        let st = document.createElement("style");
+        st.textContent = INV_CSS;
+        document.head.appendChild(st);
+        let pt = document.querySelector('.tab[data-tab="productos"]');
+        if (pt) {
+          let b = document.createElement("button");
+          b.className = "tab";
+          b.dataset.tab = "inventario";
+          b.id = "invTab";
+          b.textContent = "Inventario";
+          b.onclick = () => switchTab("inventario");
+          b.style.display = deviceIsMain() ? "" : "none";
+          pt.after(b);
+        }
+        let sec = document.createElement("div");
+        sec.id = "inventario";
+        sec.className = "section";
+        sec.innerHTML = INV_SECTION_HTML;
+        let prod = gid("productos");
+        if (prod) prod.after(sec);
+        let tmp = document.createElement("div");
+        tmp.innerHTML = INV_MODALS_HTML;
+        [...tmp.children].forEach((c) => document.body.appendChild(c));
+        gid("invItKind").innerHTML = Object.entries(INV_KINDS)
+          .map(([k, v]) => '<option value="' + k + '">' + esc(v.label) + "</option>")
+          .join("");
+        gid("invItPreset").innerHTML = INV_PRESETS.map((p) => '<option value="' + p[0] + '">' + esc(p[1]) + "</option>").join("");
+        gid("invRpKind").innerHTML = INV_REPORTS.map(([k, l]) => '<option value="' + k + '">' + esc(l) + "</option>").join("");
+        // Impresión: A4 como formato adicional y botón «Imprimir cierre».
+        let pf = gid("printFormat");
+        if (pf && !pf.querySelector('option[value="a4"]')) {
+          let o = document.createElement("option");
+          o.value = "a4";
+          o.textContent = "Hoja A4";
+          pf.appendChild(o);
+        }
+        let z = gid("printZBtn");
+        if (z && !gid("cashPrintBtn")) {
+          let b = document.createElement("button");
+          b.className = "btn";
+          b.id = "cashPrintBtn";
+          b.textContent = "Imprimir cierre";
+          b.onclick = () => openCashPrint();
+          z.after(b);
+        }
+        // Campo numérico activo (destino de la calculadora).
+        document.addEventListener("focusin", (e) => {
+          let t = e.target;
+          if (t && t.matches && t.matches('input[type="number"]') && !t.closest("#invCalc")) {
+            invCalcTarget = t;
+            let lab = t.closest("div") && t.closest("div").querySelector("label");
+            gid("invCalcTarget").textContent = "Campo: " + ((lab && lab.textContent.trim()) || t.placeholder || "seleccionado");
+          }
+        });
+      }
+      function invClose(id) {
+        gid(id).classList.remove("show");
+      }
+      function invShow(id) {
+        gid(id).classList.add("show");
+      }
+
+      // --- Pestaña ---
+      function invRender() {
+        let grid = gid("invGrid");
+        if (!grid) return;
+        let st = invState,
+          neg = invNegatives(),
+          low = invLows();
+        gid("invAlerts").innerHTML =
+          (neg.length
+            ? '<div class="inv-alert neg">⚠ <b>Stock negativo:</b> ' +
+              neg.map((it) => esc(it.name) + " (" + esc(invFmtQ(invStock(it.id), it.baseUnit)) + ")").join(", ") +
+              ". Registra la compra o haz un conteo físico.</div>"
+            : "") +
+          (low.length
+            ? '<div class="inv-alert low"><b>Bajo el mínimo:</b> ' +
+              low.map((it) => esc(it.name) + " (" + esc(invFmtQ(invStock(it.id), it.baseUnit)) + ")").join(", ") +
+              "</div>"
+            : "");
+        let value = invActiveItems().reduce((a, it) => a + Math.max(0, invStock(it.id)) * invAvg(it.id), 0),
+          withRecipe = (data.products || []).filter((p) => invProductStats(p)).length;
+        gid("invKpis").innerHTML =
+          '<div class="inv-kpi"><span>Valor del inventario</span><strong>' + money(Math.round(value)) + "</strong></div>" +
+          '<div class="inv-kpi"><span>Elementos activos</span><strong>' + invActiveItems().length + "</strong></div>" +
+          '<div class="inv-kpi"><span>Productos con receta</span><strong>' + withRecipe + " / " + (data.products || []).length + "</strong></div>" +
+          '<div class="inv-kpi ' + (neg.length ? "bad" : "good") + '"><span>Stock negativo</span><strong>' + neg.length + "</strong></div>" +
+          '<div class="inv-kpi ' + (low.length ? "bad" : "good") + '"><span>Bajo el mínimo</span><strong>' + low.length + "</strong></div>";
+        let chips = [["all", "Todo", "#999"]]
+          .concat(Object.entries(INV_KINDS).map(([k, v]) => [k, v.short, v.color]))
+          .concat([["products", "Productos de venta", INV_PRODUCT_COLOR]]);
+        gid("invChips").innerHTML = chips
+          .map(
+            ([k, l, c]) =>
+              '<button class="inv-chip ' + (invFilter === k ? "active" : "") + '" style="--k:' + c + '" onclick="invFilter=\'' + k + "';invRender()\">" + esc(l) + "</button>",
+          )
+          .join("");
+        let q = invSearch.trim().toLowerCase(),
+          match = (s) => !q || String(s || "").toLowerCase().includes(q),
+          html = "";
+        if (invFilter !== "products") {
+          html += '<button class="product inv-new" onclick="invOpenItem()">＋ Nuevo elemento</button>';
+          invItems
+            .filter((it) => (invFilter === "all" || it.kind === invFilter) && (match(it.name) || match(it.category)))
+            .sort((a, b) => (a.active === false) - (b.active === false) || String(a.name).localeCompare(String(b.name), "es"))
+            .forEach((it) => {
+              let k = INV_KINDS[it.kind] || INV_KINDS.raw,
+                s = invStock(it.id),
+                mn = Number(it.minStock) || 0,
+                cls = s < -1e-9 ? "neg" : mn > 0 && s < mn ? "low" : "",
+                pf = Number(it.purchaseFactor) || 0,
+                eq = pf > 1 && it.purchaseUnit ? " · " + invFmtN(s / pf) + " " + esc(it.purchaseUnit) : "";
+              html +=
+                '<button class="product inv-card ' + (cls === "neg" ? "neg " : "") + (it.active === false ? "off" : "") + '" style="--k:' + k.color + '" onclick="invOpenItem(\'' + esc(it.id) + "')\">" +
+                '<div><div class="inv-kind">' + esc(k.short) + (it.category ? " · " + esc(it.category) : "") + "</div>" +
+                '<div class="product-name">' + esc(it.name) + "</div></div>" +
+                '<div><div class="inv-stock ' + cls + '">' + esc(invFmtQ(s, it.baseUnit)) + "</div>" +
+                '<div class="inv-meta">' + money(invR(invAvg(it.id), 2)) + "/" + esc(INV_UNITS[it.baseUnit] || it.baseUnit) + eq + (mn ? " · mín " + esc(invFmtQ(mn, it.baseUnit)) : "") + (it.active === false ? " · inactivo" : "") + "</div></div>" +
+                "</button>";
+            });
+        }
+        if (invFilter === "all" || invFilter === "products") {
+          (data.products || [])
+            .filter((p) => match(p.name) || match(p.category))
+            .forEach((p, i) => {
+              let s = invProductStats(p),
+                idx = data.products.indexOf(p);
+              html +=
+                '<button class="product inv-card" style="--k:' + INV_PRODUCT_COLOR + '" onclick="invOpenRecipe(' + idx + ')">' +
+                '<div><div class="inv-kind">Producto de venta · ' + esc(p.category || "Otros") + "</div>" +
+                '<div class="product-name">' + esc(p.name) + "</div></div>" +
+                (s
+                  ? '<div><div class="inv-meta">Precio ' + money(s.price) + " · costo " + money(Math.round(s.cost)) + "</div>" +
+                    '<div class="inv-stock ' + (s.margin < 0 ? "neg" : "") + '">' + money(Math.round(s.margin)) + " · " + invFmtN(s.pct, 1) + "%</div>" +
+                    '<div class="inv-meta ' + (s.can === 0 ? "inv-neg" : "") + '">' + esc(invCanText(s, p)) + "</div></div>"
+                  : '<div><div class="inv-meta">Precio ' + money(Number(p.price) || 0) + '</div><div class="inv-meta">Sin receta: no descuenta inventario. Toca para crearla.</div></div>') +
+                "</button>";
+            });
+        }
+        grid.innerHTML = html || '<div class="notice">No hay elementos que coincidan.</div>';
+      }
+      function invCanText(s, p) {
+        if (s.can == null) return "Sin ingredientes que limiten";
+        let lim = invItem(s.limit);
+        return "Quedan " + invFmtN(s.can, 0) + " " + (p ? p.name : "") + (lim ? "; limita " + lim.name : "");
+      }
+      // Costo, margen y unidades posibles con la receta vigente.
+      function invProductStats(p) {
+        let rec = invRecipeFor("product", invProdKey(p)),
+          v = invCurrentVersion(rec),
+          lines = null,
+          resale = false;
+        if (v && Array.isArray(v.lines) && v.lines.length) lines = v.lines;
+        else {
+          let rs = invResaleFor(p);
+          if (rs) {
+            lines = [{ itemId: rs.id, qty: 1 }];
+            resale = true;
+          }
+        }
+        if (!lines) return null;
+        let st = invLinesStats(lines),
+          price = Number(p.price) || 0;
+        return { ...st, ...invMargin(st.cost, price), v, resale, price };
+      }
+      function invMargin(cost, price) {
+        let margin = price - cost;
+        return { margin, pct: price ? (margin / price) * 100 : 0 };
+      }
+      function invLinesStats(lines) {
+        let cost = 0,
+          can = Infinity,
+          limit = null;
+        lines.forEach((l) => {
+          let q = Number(l.qty) || 0;
+          cost += q * invAvg(l.itemId);
+          if (q <= 0 || !invItem(l.itemId)) return;
+          let n = Math.max(0, Math.floor(invStock(l.itemId) / q + 1e-9));
+          if (n < can) {
+            can = n;
+            limit = l.itemId;
+          }
+        });
+        return { lines, cost, can: can === Infinity ? null : can, limit };
+      }
+
+      // --- Editor de líneas de receta ---
+      function invLineRow(l, exclude) {
+        let opts = invActiveItems()
+          .filter((it) => it.id !== exclude)
+          .map((it) => '<option value="' + esc(it.id) + '"' + (l && l.itemId === it.id ? " selected" : "") + ">" + esc(it.name) + " (" + esc(INV_KINDS[it.kind] ? INV_KINDS[it.kind].short : "") + ")</option>")
+          .join("");
+        let it = l && invItem(l.itemId);
+        if (l && l.itemId && !invActiveItems().some((x) => x.id === l.itemId))
+          opts = '<option value="' + esc(l.itemId) + '" selected>' + esc((it && it.name) || "Elemento eliminado") + " (inactivo)</option>" + opts;
+        return (
+          '<div class="inv-line"><select class="field inv-li" onchange="invLinesChanged(this)"><option value="">Elegir ingrediente…</option>' +
+          opts +
+          '</select><input class="field inv-lq" type="number" step="any" placeholder="Cantidad" value="' +
+          (l && l.qty != null ? esc(l.qty) : "") +
+          '" oninput="invLinesChanged(this)" /><span class="u">' +
+          esc(it ? INV_UNITS[it.baseUnit] || it.baseUnit : "") +
+          '</span><button type="button" class="inv-x" onclick="let b=this.closest(\'.inv-line\').parentNode;this.closest(\'.inv-line\').remove();invLinesChanged(b)">✕</button></div>'
+        );
+      }
+      function invSetLines(boxId, lines, exclude) {
+        let box = gid(boxId);
+        box.dataset.exclude = exclude || "";
+        box.innerHTML = (lines && lines.length ? lines : [null]).map((l) => invLineRow(l, exclude)).join("");
+      }
+      function invAddLine(boxId) {
+        let box = gid(boxId);
+        box.insertAdjacentHTML("beforeend", invLineRow(null, box.dataset.exclude || ""));
+      }
+      function invReadLines(boxId) {
+        let out = [],
+          bad = false;
+        gid(boxId)
+          .querySelectorAll(".inv-line")
+          .forEach((r) => {
+            let id = r.querySelector(".inv-li").value,
+              raw = r.querySelector(".inv-lq").value,
+              q = invNum(raw);
+            if (!id && raw === "") return;
+            if (!id || !Number.isFinite(q) || q === 0) bad = true;
+            else out.push({ itemId: id, qty: q });
+          });
+        return bad ? null : out;
+      }
+      function invLinesChanged(el) {
+        let row = el && el.closest && el.closest(".inv-line");
+        if (row) {
+          let it = invItem(row.querySelector(".inv-li").value);
+          row.querySelector(".u").textContent = it ? INV_UNITS[it.baseUnit] || it.baseUnit : "";
+        }
+        let box = (row && row.parentNode) || el;
+        if (box && box.id === "invRcLines") invRecipePreview();
+        if (box && box.id === "invItLines") invPrepPreview();
+      }
+
+      // --- Elemento: crear / editar ---
+      function invOpenItem(id) {
+        if (!deviceIsMain()) {
+          toast("Solo un PC Main edita el inventario");
+          return;
+        }
+        let it = id ? invItem(id) : null;
+        invEditing = it ? it.id : null;
+        gid("invItTitle").textContent = it ? it.name : "Nuevo elemento";
+        gid("invItName").value = it ? it.name : "";
+        gid("invItKind").value = it ? it.kind : invFilter in INV_KINDS ? invFilter : "raw";
+        gid("invItCat").value = it ? it.category || "" : "";
+        gid("invItBase").value = it ? it.baseUnit : "g";
+        gid("invItPreset").value = "";
+        gid("invItPU").value = it ? it.purchaseUnit || "" : "";
+        gid("invItPF").value = it ? it.purchaseFactor || "" : "";
+        gid("invItPC").value = it && it.purchaseCost ? it.purchaseCost : "";
+        gid("invItMin").value = it && it.minStock ? it.minStock : "";
+        gid("invItSup").value = it ? it.supplier || "" : "";
+        gid("invItActive").checked = !it || it.active !== false;
+        gid("invItProd").innerHTML =
+          '<option value="">Elegir producto…</option>' +
+          (data.products || []).map((p) => '<option value="' + esc(invProdKey(p)) + '"' + (it && it.productId === invProdKey(p) ? " selected" : "") + ">" + esc(p.name) + "</option>").join("");
+        let rec = it && it.kind === "prep" ? invCurrentVersion(invRecipeFor("prep", it.id)) : null;
+        invSetLines("invItLines", rec ? rec.lines : [], it ? it.id : "");
+        gid("invItYield").value = rec && rec.yield ? rec.yield : "";
+        gid("invItNote").value = "";
+        invItemKindUI();
+        if (it) {
+          let s = invStock(it.id);
+          gid("invItInfo").innerHTML =
+            '<div class="inv-kpi ' + (s < 0 ? "bad" : "") + '"><span>Stock actual</span><strong>' + esc(invFmtQ(s, it.baseUnit)) + "</strong></div>" +
+            '<div class="inv-kpi"><span>Costo promedio</span><strong>' + money(invR(invAvg(it.id), 2)) + "/" + esc(INV_UNITS[it.baseUnit]) + "</strong></div>" +
+            '<div class="inv-kpi"><span>Valor</span><strong>' + money(Math.round(Math.max(0, s) * invAvg(it.id))) + "</strong></div>";
+          gid("invItQuick").innerHTML =
+            '<button class="btn small" onclick="invOpenMove(\'purchase\',\'' + esc(it.id) + "')\">Compra</button>" +
+            '<button class="btn small" onclick="invOpenMove(\'waste\',\'' + esc(it.id) + "')\">Merma</button>" +
+            '<button class="btn small" onclick="invOpenMove(\'adjust\',\'' + esc(it.id) + "')\">Ajuste</button>" +
+            (it.kind === "prep" ? '<button class="btn small" onclick="invOpenMove(\'produce\',\'' + esc(it.id) + "')\">Producir lote</button>" : "");
+          gid("invItHist").innerHTML = invItemHistoryHTML(it);
+        } else {
+          gid("invItInfo").innerHTML = "";
+          gid("invItQuick").innerHTML = "";
+          gid("invItHist").innerHTML = "";
+        }
+        invShow("invItemModal");
+        setTimeout(() => gid("invItName").focus(), 30);
+      }
+      function invItemKindUI() {
+        let kind = gid("invItKind").value,
+          bu = INV_UNITS[gid("invItBase").value] || "";
+        gid("invItProdRow").style.display = kind === "resale" ? "" : "none";
+        gid("invItPrepRow").style.display = kind === "prep" ? "" : "none";
+        gid("invItPFLabel").textContent = "Equivale a (" + bu + " por unidad de compra)";
+        gid("invItMinLabel").textContent = "Stock mínimo (" + bu + ")";
+        gid("invItYieldLabel").textContent = "Rendimiento por lote (" + bu + ")";
+        if (kind === "prep") invPrepPreview();
+      }
+      function invApplyPreset() {
+        let p = INV_PRESETS.find((x) => x[0] === gid("invItPreset").value);
+        if (!p || !p[0]) return;
+        gid("invItPU").value = p[2];
+        if (p[3] !== "") gid("invItPF").value = p[3];
+        else {
+          gid("invItPF").value = "";
+          gid("invItPF").focus();
+        }
+        if (["kg", "lb"].includes(p[0])) gid("invItBase").value = "g";
+        if (["L", "gal"].includes(p[0])) gid("invItBase").value = "ml";
+        if (["pack", "u"].includes(p[0])) gid("invItBase").value = "u";
+        invItemKindUI();
+      }
+      function invPrepPreview() {
+        let lines = invReadLines("invItLines") || [],
+          y = invNum(gid("invItYield").value),
+          s = invLinesStats(lines),
+          bu = INV_UNITS[gid("invItBase").value] || "";
+        gid("invItPrepInfo").textContent = lines.length
+          ? "Costo del lote: " + money(Math.round(s.cost)) + (y > 0 ? " · " + money(invR(s.cost / y, 2)) + "/" + bu : "") + (s.can != null ? " · alcanza para " + s.can + " lote(s)" : "")
+          : "Agrega los ingredientes de un lote y su rendimiento.";
+      }
+      async function invSaveItem() {
+        if (!deviceIsMain()) return toast("Solo un PC Main edita el inventario");
+        let name = gid("invItName").value.trim(),
+          kind = gid("invItKind").value,
+          base = gid("invItBase").value,
+          pf = gid("invItPF").value === "" ? 1 : invNum(gid("invItPF").value),
+          pc = gid("invItPC").value === "" ? 0 : invNum(gid("invItPC").value),
+          mn = gid("invItMin").value === "" ? 0 : invNum(gid("invItMin").value);
+        if (!name) return toast("Escribe el nombre del elemento");
+        if (invItems.some((x) => x.id !== invEditing && x.active !== false && String(x.name).toLowerCase() === name.toLowerCase()))
+          return toast("Ya existe un elemento activo con ese nombre");
+        if (!Number.isFinite(pf) || pf <= 0) return toast("La equivalencia de la unidad de compra debe ser mayor que 0");
+        if (!Number.isFinite(pc) || pc < 0 || !Number.isFinite(mn) || mn < 0) return toast("Revisa el costo y el stock mínimo");
+        let prodId = gid("invItProd").value;
+        if (kind === "resale" && !prodId) return toast("Elige el producto del catálogo que se revende");
+        if (kind === "resale" && invItems.some((x) => x.id !== invEditing && x.kind === "resale" && x.active !== false && x.productId === prodId))
+          return toast("Ese producto ya tiene un elemento de reventa");
+        let lines = null,
+          y = null;
+        if (kind === "prep") {
+          lines = invReadLines("invItLines");
+          y = invNum(gid("invItYield").value);
+          if (!lines) return toast("Revisa los ingredientes del lote (ingrediente y cantidad)");
+          if (lines.length && !(y > 0)) return toast("Indica el rendimiento del lote");
+        }
+        let old = invEditing ? invItem(invEditing) : null,
+          now = new Date().toISOString(),
+          it = {
+            ...(old || { id: makeId(), createdAt: now, createdBy: currentDeviceId() }),
+            name,
+            kind,
+            category: gid("invItCat").value.trim(),
+            baseUnit: base,
+            purchaseUnit: gid("invItPU").value.trim() || INV_UNITS[base],
+            purchaseFactor: pf,
+            purchaseCost: pc,
+            minStock: mn,
+            supplier: gid("invItSup").value.trim(),
+            productId: kind === "resale" ? prodId : null,
+            active: gid("invItActive").checked,
+          };
+        if (old && old.baseUnit !== base && invMoves.some((m) => m.itemId === old.id) && !confirm("Cambiar la unidad base no convierte el historial ya registrado. ¿Continuar?")) return;
+        await invSaveItemDoc(it);
+        BulletAudit.record(old ? "invItemUpdated" : "invItemCreated", {
+          itemId: it.id,
+          name,
+          kind,
+          baseUnit: base,
+          purchaseUnit: it.purchaseUnit,
+          purchaseFactor: pf,
+          purchaseCost: pc,
+          minStock: mn,
+          before: old ? { name: old.name, kind: old.kind, purchaseCost: old.purchaseCost, minStock: old.minStock, active: old.active !== false } : null,
+        });
+        if (kind === "prep" && lines) {
+          let cur = invCurrentVersion(invRecipeFor("prep", it.id)),
+            same = cur && JSON.stringify(cur.lines) === JSON.stringify(lines.map((l) => ({ itemId: l.itemId, qty: invR(l.qty) }))) && Number(cur.yield) === y;
+          if (!same && (lines.length || cur)) await invSaveRecipeVersion("prep", it.id, lines, { yield: y > 0 ? y : null }, gid("invItNote").value.trim());
+        }
+        invClose("invItemModal");
+        await invRefreshNow();
+        invRender();
+        toast(old ? "Elemento actualizado" : "Elemento creado");
+      }
+      function invItemHistoryHTML(it) {
+        let ev = ((invState && invState.ev) || []).filter((e) => e.itemId === it.id).slice(-40).reverse(),
+          reversed = new Set(invMoves.filter((m) => m.reverses).map((m) => m.reverses));
+        if (!ev.length) return '<div class="sub">Sin movimientos todavía.</div>';
+        return (
+          '<h4 class="mini-title">Últimos movimientos</h4><div class="table-wrap"><table class="inv-hist"><thead><tr><th>Fecha</th><th>Tipo</th><th>Cantidad</th><th>Saldo</th><th>Valor</th><th>Detalle</th><th></th></tr></thead><tbody>' +
+          ev
+            .map((e) => {
+              let m = e.m,
+                det = m
+                  ? [m.reason, m.supplier, m.invoice ? "Fact. " + m.invoice : "", m.note, m.reverses ? "Corrección" : "", invWho(m)].filter(Boolean).join(" · ")
+                  : "Venta " + String(e.s.id).slice(0, 8).toUpperCase() + (e.s.operator ? " · " + e.s.operator : ""),
+                can = m && !m.reverses && !reversed.has(m.id) && m.type !== "produceOut";
+              return (
+                "<tr><td>" + esc(fmtDT(e.t)) + "</td><td>" + esc(INV_MOVE_TYPES[e.type] || e.type) + '</td><td class="' + (e.qty < 0 ? "neg" : "") + '">' + esc(invFmtQ(e.qty, it.baseUnit)) +
+                '</td><td class="' + (e.after < 0 ? "neg" : "") + '">' + esc(invFmtQ(e.after, it.baseUnit)) + "</td><td>" + money(Math.round(e.value)) + "</td><td>" + esc(det) + "</td><td>" +
+                (can ? '<button class="btn small" onclick="invReverse(\'' + esc(m.id) + "')\">Corregir</button>" : m && reversed.has(m.id) ? '<span class="pill">Corregido</span>' : "") +
+                "</td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table></div>"
+        );
+      }
+      // Corrección: un movimiento contrario (nunca se borra el original). En un
+      // lote de producción se corrige el lote completo.
+      async function invReverse(id) {
+        if (!deviceIsMain()) return toast("Solo un PC Main corrige movimientos");
+        let m = invMoves.find((x) => x.id === id);
+        if (!m) return;
+        if (invMoves.some((x) => x.reverses === id)) return toast("Ese movimiento ya fue corregido");
+        let group = m.batchId ? invMoves.filter((x) => x.batchId === m.batchId && !x.reverses) : [m],
+          reason = prompt(
+            "Corregir " + (INV_MOVE_TYPES[m.type] || m.type).toLowerCase() + " de " + (m.itemName || "") + " (" + invFmtQ(m.qty, (invItem(m.itemId) || {}).baseUnit) + ").\n" +
+              (group.length > 1 ? "Se corregirá el lote completo (" + group.length + " movimientos).\n" : "") +
+              "Se registra un movimiento contrario. Motivo:",
+            "",
+          );
+        if (reason == null) return;
+        if (!reason.trim()) return toast("El motivo es obligatorio");
+        let bid = m.batchId ? makeId() : null;
+        await invAddMoves(
+          group.map((x) => ({
+            type: x.type,
+            itemId: x.itemId,
+            qty: -(Number(x.qty) || 0),
+            cost: x.cost != null ? -(Number(x.cost) || 0) : null,
+            reverses: x.id,
+            reason: "Corrección: " + reason.trim(),
+            batchId: bid,
+            countId: x.countId || null,
+          })),
+          "invMovementReversed",
+          { reverses: group.map((x) => x.id), reason: reason.trim() },
+        );
+        if (invEditing) invOpenItem(invEditing);
+        toast("Corrección registrada");
+      }
+
+      // --- Receta de un producto del catálogo ---
+      function invOpenRecipe(idx) {
+        if (!deviceIsMain()) return toast("Solo un PC Main edita recetas");
+        let p = data.products[idx];
+        if (!p) return;
+        invRecipeTarget = invProdKey(p);
+        let rec = invRecipeFor("product", invRecipeTarget),
+          v = invCurrentVersion(rec),
+          rs = invResaleFor(p);
+        gid("invRcTitle").textContent = "Receta · " + p.name;
+        gid("invRcSub").innerHTML =
+          "Precio de venta " + money(Number(p.price) || 0) + " · " + esc(p.category || "Otros") +
+          (rs ? '<br><span class="pill ok">Reventa</span> Sin receta se descuenta 1 ' + esc(rs.name) + " por unidad vendida." : "");
+        invSetLines("invRcLines", v ? v.lines : [], "");
+        gid("invRcNote").value = "";
+        invRecipePreview();
+        gid("invRcVersions").innerHTML =
+          rec && rec.versions.length
+            ? '<h4 class="mini-title">Versiones</h4><div class="table-wrap"><table class="inv-hist"><thead><tr><th>Versión</th><th>Desde</th><th>Ingredientes</th><th>Nota</th><th>Quién</th></tr></thead><tbody>' +
+              rec.versions
+                .slice()
+                .reverse()
+                .map(
+                  (x) =>
+                    "<tr><td>v" + x.v + (x === v ? ' <span class="pill ok">vigente</span>' : "") + "</td><td>" + esc(fmtDT(x.from)) + "</td><td>" +
+                    esc((x.lines || []).map((l) => ((invItem(l.itemId) || {}).name || "?") + " " + invFmtQ(l.qty, (invItem(l.itemId) || {}).baseUnit)).join(", ") || "Sin ingredientes") +
+                    "</td><td>" + esc(x.note || "") + "</td><td>" + esc(x.operator || x.byName || "") + "</td></tr>",
+                )
+                .join("") +
+              "</tbody></table></div>"
+            : "";
+        invShow("invRecipeModal");
+      }
+      function invRecipePreview() {
+        let p = invProductByKey(invRecipeTarget),
+          lines = invReadLines("invRcLines") || [],
+          s = invLinesStats(lines),
+          price = p ? Number(p.price) || 0 : 0,
+          mg = invMargin(s.cost, price);
+        gid("invRcPreview").innerHTML = lines.length
+          ? '<div class="inv-kpi"><span>Costo de producción</span><strong>' + money(Math.round(s.cost)) + "</strong></div>" +
+            '<div class="inv-kpi"><span>Precio de venta</span><strong>' + money(price) + "</strong></div>" +
+            '<div class="inv-kpi ' + (mg.margin < 0 ? "bad" : "good") + '"><span>Margen</span><strong>' + money(Math.round(mg.margin)) + " · " + invFmtN(mg.pct, 1) + "%</strong></div>" +
+            '<div class="inv-kpi ' + (s.can === 0 ? "bad" : "") + '"><span>Con el stock actual</span><strong>' + esc(invCanText(s, p)) + "</strong></div>"
+          : '<div class="sub">Sin ingredientes: el producto se vende igual, pero no descuenta inventario.</div>';
+      }
+      async function invSaveRecipe() {
+        if (!deviceIsMain()) return toast("Solo un PC Main edita recetas");
+        let p = invProductByKey(invRecipeTarget),
+          lines = invReadLines("invRcLines");
+        if (!p) return;
+        if (!lines) return toast("Revisa los ingredientes (ingrediente y cantidad distinta de 0)");
+        let cur = invCurrentVersion(invRecipeFor("product", invRecipeTarget));
+        if (!cur && !lines.length) return toast("Agrega al menos un ingrediente");
+        if (cur && JSON.stringify(cur.lines) === JSON.stringify(lines.map((l) => ({ itemId: l.itemId, qty: invR(l.qty) })))) return toast("La receta no cambió");
+        if (!lines.length && !confirm("¿Quitar la receta? Desde ahora este producto no descontará inventario.")) return;
+        await invSaveRecipeVersion("product", invRecipeTarget, lines, { productName: p.name }, gid("invRcNote").value.trim());
+        invClose("invRecipeModal");
+        await invRefreshNow();
+        invRender();
+        toast("Receta guardada (nueva versión)");
+      }
+
+      // --- Movimientos: compra, merma, ajuste, producción ---
+      function invItemOptions(sel, filterFn) {
+        return (
+          '<option value="">Elegir…</option>' +
+          invActiveItems()
+            .filter(filterFn || (() => true))
+            .map((it) => '<option value="' + esc(it.id) + '"' + (it.id === sel ? " selected" : "") + ">" + esc(it.name) + " · " + esc(invFmtQ(invStock(it.id), it.baseUnit)) + "</option>")
+            .join("")
+        );
+      }
+      function invToday() {
+        return new Date().toLocaleDateString("en-CA");
+      }
+      function invOpenMove(type, itemId) {
+        if (!deviceIsMain()) return toast("Solo un PC Main registra movimientos de inventario");
+        if (!invActiveItems().length) return toast("Primero crea un elemento de inventario");
+        invMoveType = type;
+        let b = gid("invMvBody"),
+          title = { purchase: "Registrar compra / entrada", waste: "Registrar merma", adjust: "Ajuste manual", produce: "Producir lote de preparación" }[type];
+        gid("invMvTitle").textContent = title;
+        gid("invMvSave").textContent = type === "produce" ? "Producir" : "Registrar";
+        let unitSel = '<div><label>Unidad</label><select id="invMvUnit" class="field" onchange="invMovePreview()"></select></div>';
+        if (type === "purchase")
+          b.innerHTML =
+            '<div class="wide"><label>Elemento</label><select id="invMvItem" class="field" onchange="invMoveItemChanged()">' + invItemOptions(itemId) + "</select></div>" +
+            '<div><label>Cantidad</label><input id="invMvQty" class="field" type="number" min="0" step="any" oninput="invMovePreview()" /></div>' + unitSel +
+            '<div><label>Costo total (COP)</label><input id="invMvCost" class="field" type="number" min="0" step="any" oninput="invMovePreview()" /></div>' +
+            '<div><label>Fecha</label><input id="invMvDate" class="field" type="date" value="' + invToday() + '" /></div>' +
+            '<div><label>Proveedor</label><input id="invMvSup" class="field" maxlength="80" /></div>' +
+            '<div><label>N.º de factura (opcional)</label><input id="invMvInv" class="field" maxlength="40" /></div>' +
+            '<div class="wide"><label>Nota (opcional)</label><input id="invMvNote" class="field" maxlength="160" /></div>';
+        else if (type === "waste")
+          b.innerHTML =
+            '<div class="wide"><label>Elemento</label><select id="invMvItem" class="field" onchange="invMoveItemChanged()">' + invItemOptions(itemId) + "</select></div>" +
+            '<div><label>Cantidad perdida</label><input id="invMvQty" class="field" type="number" min="0" step="any" oninput="invMovePreview()" /></div>' + unitSel +
+            '<div><label>Motivo</label><select id="invMvReason" class="field">' + INV_WASTE_REASONS.map((r) => "<option>" + esc(r) + "</option>").join("") + "</select></div>" +
+            '<div><label>Fecha</label><input id="invMvDate" class="field" type="date" value="' + invToday() + '" /></div>' +
+            '<div class="wide"><label>Nota</label><input id="invMvNote" class="field" maxlength="160" placeholder="Ej. bolsa rota, leche vencida" /></div>';
+        else if (type === "adjust")
+          b.innerHTML =
+            '<div class="wide"><label>Elemento</label><select id="invMvItem" class="field" onchange="invMoveItemChanged()">' + invItemOptions(itemId) + "</select></div>" +
+            '<div><label>Dirección</label><select id="invMvDir" class="field" onchange="invMovePreview()"><option value="1">Entrada (+)</option><option value="-1">Salida (−)</option></select></div>' +
+            '<div><label>Cantidad</label><input id="invMvQty" class="field" type="number" min="0" step="any" oninput="invMovePreview()" /></div>' + unitSel +
+            '<div class="wide"><label>Motivo (obligatorio)</label><input id="invMvReason" class="field" maxlength="160" placeholder="Ej. error de registro, préstamo a otra sede" /></div>';
+        else
+          b.innerHTML =
+            '<div class="wide"><label>Preparación</label><select id="invMvItem" class="field" onchange="invMovePreview()">' + invItemOptions(itemId, (it) => it.kind === "prep") + "</select></div>" +
+            '<div><label>Número de lotes</label><input id="invMvQty" class="field" type="number" min="0" step="any" value="1" oninput="invMovePreview()" /></div>' +
+            '<div><label>Nota (opcional)</label><input id="invMvNote" class="field" maxlength="160" /></div>';
+        invMoveItemChanged();
+        invShow("invMoveModal");
+      }
+      function invMoveItemChanged() {
+        let it = invItem(gid("invMvItem").value),
+          u = gid("invMvUnit");
+        if (u) {
+          u.innerHTML = it
+            ? (Number(it.purchaseFactor) > 1 || it.purchaseUnit !== INV_UNITS[it.baseUnit]
+                ? '<option value="p">' + esc(it.purchaseUnit || "unidad de compra") + " (" + invFmtN(it.purchaseFactor) + " " + esc(INV_UNITS[it.baseUnit]) + ")</option>"
+                : "") +
+              '<option value="b">' + esc(INV_UNITS[it.baseUnit]) + "</option>"
+            : "";
+          if (invMoveType !== "purchase" && it && u.querySelector('option[value="b"]')) u.value = "b";
+        }
+        if (invMoveType === "purchase" && it) {
+          let s = gid("invMvSup");
+          if (s && !s.value) s.value = it.supplier || "";
+        }
+        invMovePreview();
+      }
+      function invMoveQtyBase() {
+        let it = invItem(gid("invMvItem").value),
+          q = invNum(gid("invMvQty").value),
+          u = gid("invMvUnit");
+        if (!it || !Number.isFinite(q)) return { it, q: NaN, raw: q };
+        let f = u && u.value === "p" ? Number(it.purchaseFactor) || 1 : 1;
+        return { it, q: q * f, raw: q, inPurchase: f !== 1 || (u && u.value === "p") };
+      }
+      function invProduceInfo() {
+        let it = invItem(gid("invMvItem").value),
+          n = invNum(gid("invMvQty").value),
+          v = it ? invCurrentVersion(invRecipeFor("prep", it.id)) : null;
+        if (!it || !v || !(v.lines || []).length || !(Number(v.yield) > 0)) return { it, n, v: null };
+        let lines = v.lines.map((l) => ({ itemId: l.itemId, qty: (Number(l.qty) || 0) * n })),
+          cost = lines.reduce((a, l) => a + l.qty * invAvg(l.itemId), 0);
+        return { it, n, v, lines, cost, out: Number(v.yield) * n };
+      }
+      function invMovePreview() {
+        let el = gid("invMvPreview");
+        if (!el) return;
+        if (invMoveType === "produce") {
+          let p = invProduceInfo();
+          if (!p.it) return (el.textContent = "Elige la preparación.");
+          if (!p.v) return (el.innerHTML = "Esta preparación aún no tiene receta de lote con rendimiento. Edítala en el detalle del elemento.");
+          if (!(p.n > 0)) return (el.textContent = "Indica cuántos lotes.");
+          el.innerHTML =
+            "Entra: <b>" + esc(invFmtQ(p.out, p.it.baseUnit)) + " de " + esc(p.it.name) + "</b> · costo " + money(Math.round(p.cost)) +
+            "<br>Se descuenta: " +
+            p.lines
+              .map((l) => {
+                let x = invItem(l.itemId) || {},
+                  after = invStock(l.itemId) - l.qty;
+                return esc((x.name || "?") + " " + invFmtQ(l.qty, x.baseUnit)) + (after < 0 ? ' <span class="inv-neg">(queda ' + esc(invFmtQ(after, x.baseUnit)) + ")</span>" : "");
+              })
+              .join(", ");
+          return;
+        }
+        let r = invMoveQtyBase();
+        if (!r.it) return (el.textContent = "");
+        let sign = invMoveType === "waste" ? -1 : invMoveType === "adjust" ? Number(gid("invMvDir").value) : 1,
+          now = invStock(r.it.id),
+          after = Number.isFinite(r.q) ? now + sign * r.q : now,
+          txt = "Stock actual " + invFmtQ(now, r.it.baseUnit) + (Number.isFinite(r.q) ? " → " + invFmtQ(after, r.it.baseUnit) : "");
+        if (invMoveType === "purchase") {
+          let c = invNum(gid("invMvCost").value);
+          if (Number.isFinite(r.q) && r.q > 0 && Number.isFinite(c)) {
+            let pos = Math.max(0, now),
+              avg = (pos * invAvg(r.it.id) + c) / (pos + r.q);
+            txt += " · entra como " + invFmtQ(r.q, r.it.baseUnit) + " a " + money(invR(c / r.q, 2)) + "/" + INV_UNITS[r.it.baseUnit] + " · nuevo costo promedio " + money(invR(avg, 2)) + "/" + INV_UNITS[r.it.baseUnit];
+          }
+        } else if (Number.isFinite(r.q)) txt += " · valor " + money(Math.round(r.q * invAvg(r.it.id)));
+        el.innerHTML = esc(txt).replace(/→ (-[^·]+)/, '→ <span class="inv-neg">$1</span>');
+      }
+      function invDateAt(id) {
+        let v = gid(id) && gid(id).value;
+        if (!v || v === invToday()) return new Date().toISOString();
+        let d = new Date(v + "T12:00:00");
+        return isNaN(d) ? new Date().toISOString() : d.toISOString();
+      }
+      async function invSaveMove() {
+        if (!deviceIsMain()) return toast("Solo un PC Main registra movimientos de inventario");
+        let type = invMoveType,
+          btn = gid("invMvSave");
+        if (type === "produce") {
+          let p = invProduceInfo();
+          if (!p.it) return toast("Elige la preparación");
+          if (!p.v) return toast("La preparación no tiene receta de lote con rendimiento");
+          if (!(p.n > 0)) return toast("Indica cuántos lotes");
+          let bid = makeId(),
+            note = gid("invMvNote").value.trim(),
+            list = p.lines.map((l) => ({ type: "produceOut", itemId: l.itemId, qty: -invR(l.qty), batchId: bid, recipeV: p.v.v, note }));
+          list.push({ type: "produceIn", itemId: p.it.id, qty: invR(p.out), cost: Math.round(p.cost), unitCost: invR(p.cost / p.out, 4), batchId: bid, batches: p.n, recipeV: p.v.v, note });
+          btn.disabled = true;
+          try {
+            await invAddMoves(list, "invProduction", { itemId: p.it.id, item: p.it.name, batches: p.n, yield: p.out, cost: Math.round(p.cost), recipeVersion: p.v.v });
+          } finally {
+            btn.disabled = false;
+          }
+          invClose("invMoveModal");
+          invRender();
+          return toast("Lote registrado: " + invFmtQ(p.out, p.it.baseUnit) + " de " + p.it.name);
+        }
+        let r = invMoveQtyBase();
+        if (!r.it) return toast("Elige el elemento");
+        if (!Number.isFinite(r.q) || r.q <= 0) return toast("La cantidad debe ser mayor que 0");
+        let m = { itemId: r.it.id, unit: r.it.baseUnit };
+        if (type === "purchase") {
+          let c = invNum(gid("invMvCost").value);
+          if (!Number.isFinite(c) || c < 0) return toast("Escribe el costo total de la compra");
+          Object.assign(m, {
+            type: "purchase",
+            qty: invR(r.q),
+            cost: Math.round(c),
+            unitCost: invR(c / r.q, 4),
+            purchaseQty: r.inPurchase ? r.raw : null,
+            purchaseUnit: r.inPurchase ? r.it.purchaseUnit : null,
+            supplier: gid("invMvSup").value.trim(),
+            invoice: gid("invMvInv").value.trim(),
+            note: gid("invMvNote").value.trim(),
+            at: invDateAt("invMvDate"),
+          });
+        } else if (type === "waste")
+          Object.assign(m, { type: "waste", qty: -invR(r.q), reason: gid("invMvReason").value, note: gid("invMvNote").value.trim(), at: invDateAt("invMvDate") });
+        else {
+          let reason = gid("invMvReason").value.trim();
+          if (!reason) return toast("El motivo del ajuste es obligatorio");
+          Object.assign(m, { type: "adjust", qty: invR(Number(gid("invMvDir").value) * r.q), reason });
+        }
+        btn.disabled = true;
+        try {
+          await invAddMoves([m], { purchase: "invPurchase", waste: "invWaste", adjust: "invAdjust" }[type], { itemId: r.it.id, item: r.it.name });
+          if (type === "purchase" && m.supplier && !r.it.supplier) await invSaveItemDoc({ ...invItem(r.it.id), supplier: m.supplier });
+        } finally {
+          btn.disabled = false;
+        }
+        invClose("invMoveModal");
+        if (invEditing && gid("invItemModal").classList.contains("show")) invOpenItem(invEditing);
+        invRender();
+        toast({ purchase: "Compra registrada", waste: "Merma registrada", adjust: "Ajuste registrado" }[type]);
+      }
+
+      // --- Conteo físico ---
+      async function invOpenCount() {
+        if (!deviceIsMain()) return toast("Solo un PC Main registra conteos");
+        if (!invActiveItems().length) return toast("Primero crea un elemento de inventario");
+        await invRefreshNow();
+        gid("invCtKind").innerHTML = '<option value="all">Todos</option>' + Object.entries(INV_KINDS).map(([k, v]) => '<option value="' + k + '">' + esc(v.label) + "</option>").join("");
+        gid("invCtNote").value = "";
+        gid("invCtRows").innerHTML = "";
+        invRenderCount();
+        invShow("invCountModal");
+      }
+      function invRenderCount() {
+        let k = gid("invCtKind").value,
+          keep = {};
+        gid("invCtRows")
+          .querySelectorAll("input[data-id]")
+          .forEach((x) => (keep[x.dataset.id] = x.value));
+        gid("invCtRows").innerHTML = invActiveItems()
+          .filter((it) => k === "all" || it.kind === k)
+          .map(
+            (it) =>
+              "<tr><td>" + esc(it.name) + "</td><td>" + esc(invFmtQ(invStock(it.id), it.baseUnit)) +
+              '</td><td><input class="field" style="max-width:130px" type="number" step="any" min="0" data-id="' + esc(it.id) + '" value="' + esc(keep[it.id] || "") + '" oninput="invCountDiff(this)" /> ' + esc(INV_UNITS[it.baseUnit]) +
+              '</td><td data-d="' + esc(it.id) + '"></td><td data-v="' + esc(it.id) + '"></td></tr>',
+          )
+          .join("");
+        gid("invCtRows").querySelectorAll("input[data-id]").forEach((x) => invCountDiff(x));
+      }
+      function invCountDiff(inp) {
+        let it = invItem(inp.dataset.id),
+          c = invNum(inp.value),
+          d = Number.isFinite(c) ? c - invStock(it.id) : null,
+          td = gid("invCtRows").querySelector('[data-d="' + CSS.escape(it.id) + '"]'),
+          tv = gid("invCtRows").querySelector('[data-v="' + CSS.escape(it.id) + '"]');
+        td.textContent = d == null ? "" : (d > 0 ? "+" : "") + invFmtQ(d, it.baseUnit);
+        td.className = d < 0 ? "neg" : "";
+        tv.textContent = d == null ? "" : money(Math.round(d * invAvg(it.id)));
+        let n = 0,
+          val = 0;
+        gid("invCtRows")
+          .querySelectorAll("input[data-id]")
+          .forEach((x) => {
+            let cc = invNum(x.value);
+            if (!Number.isFinite(cc)) return;
+            n++;
+            val += (cc - invStock(x.dataset.id)) * invAvg(x.dataset.id);
+          });
+        gid("invCtSum").textContent = n ? n + " elemento(s) contados · diferencia valorizada " + money(Math.round(val)) : "";
+      }
+      async function invSaveCount() {
+        if (!deviceIsMain()) return;
+        let rows = [];
+        let bad = false;
+        gid("invCtRows")
+          .querySelectorAll("input[data-id]")
+          .forEach((x) => {
+            if (x.value === "") return;
+            let c = invNum(x.value);
+            if (!Number.isFinite(c) || c < 0) bad = true;
+            else rows.push({ it: invItem(x.dataset.id), c });
+          });
+        if (bad) return toast("Revisa las cantidades contadas");
+        if (!rows.length) return toast("Escribe al menos una cantidad contada");
+        await invRefreshNow();
+        let cid = makeId(),
+          note = gid("invCtNote").value.trim(),
+          list = rows.map(({ it, c }) => {
+            let th = invR(invStock(it.id));
+            return { type: "count", itemId: it.id, qty: invR(c - th), theoretical: th, counted: c, countId: cid, reason: "Conteo físico", note };
+          });
+        await invAddMoves(list, "invCount", { countId: cid, items: list.length, note });
+        invClose("invCountModal");
+        invRender();
+        toast("Conteo registrado: " + list.length + " elemento(s)");
+      }
+
+      // --- Reportes ---
+      const INV_REPORTS = [
+        ["stock", "Inventario actual y valor total"],
+        ["low", "Stock bajo el mínimo y negativo"],
+        ["consumo", "Consumo de materia prima e insumos por periodo"],
+        ["margen", "Costo por producto y margen"],
+        ["ganancia", "Costo de ventas vs. ingresos (ganancia bruta)"],
+        ["conteo", "Inventario teórico vs. conteo físico"],
+        ["compras", "Compras y entradas"],
+        ["mermas", "Mermas y pérdidas"],
+        ["ajustes", "Ajustes manuales"],
+        ["simulacion", "Simulación: periodo pasado con las recetas actuales"],
+      ];
+      let invLastReport = null;
+      async function invOpenReports() {
+        if (!deviceIsMain()) return toast("Solo un PC Main ve los reportes de inventario");
+        let d = new Date();
+        if (!gid("invRpFrom").value) gid("invRpFrom").value = new Date(d.getFullYear(), d.getMonth(), 1).toLocaleDateString("en-CA");
+        if (!gid("invRpTo").value) gid("invRpTo").value = invToday();
+        invShow("invReportModal");
+        await invRunReport();
+      }
+      function invRange() {
+        let f = Date.parse(gid("invRpFrom").value + "T00:00:00"),
+          t = Date.parse(gid("invRpTo").value + "T00:00:00");
+        return { from: Number.isFinite(f) ? f : 0, to: Number.isFinite(t) ? t + 86400000 : Infinity };
+      }
+      function invInRange(t, r) {
+        return t >= r.from && t < r.to;
+      }
+      function invPeriodSales(r) {
+        let g = invGen();
+        return invSalesAll.filter((s) => s && !s.voided && (Number(s.gen) || 0) >= g && invInRange(Date.parse(s.date), r));
+      }
+      function invMovesIn(r, type) {
+        return ((invState && invState.ev) || []).filter((e) => e.m && e.type === type && invInRange(e.t, r));
+      }
+      function invReportData(kind, r) {
+        r = r || { from: 0, to: Infinity };
+        let U = (it) => (it ? INV_UNITS[it.baseUnit] || it.baseUnit : ""),
+          rows = [],
+          sum = [],
+          note = "";
+        const kpi = (label, val, cls) => sum.push([label, val, cls || ""]);
+        if (kind === "stock" || kind === "low") {
+          let total = 0;
+          invActiveItems().forEach((it) => {
+            let s = invStock(it.id),
+              mn = Number(it.minStock) || 0,
+              estado = s < -1e-9 ? "Negativo" : mn > 0 && s < mn ? "Bajo el mínimo" : "OK";
+            if (kind === "low" && estado === "OK") return;
+            let v = Math.max(0, s) * invAvg(it.id);
+            total += v;
+            rows.push({
+              Elemento: it.name,
+              Tipo: (INV_KINDS[it.kind] || {}).short || it.kind,
+              Categoría: it.category || "",
+              Stock: invR(s, 2),
+              Unidad: U(it),
+              "Stock en unidad de compra": Number(it.purchaseFactor) > 1 ? invR(s / it.purchaseFactor, 2) + " " + it.purchaseUnit : "",
+              Mínimo: mn,
+              "Costo unitario (COP)": invR(invAvg(it.id), 2),
+              "Valor (COP)": Math.round(v),
+              Proveedor: it.supplier || "",
+              Estado: estado,
+            });
+          });
+          kpi(kind === "stock" ? "Valor total del inventario" : "Valor de estos elementos", money(Math.round(total)));
+          kpi("Elementos", rows.length);
+          note = "Fotografía del inventario actual (no depende del periodo).";
+        } else if (kind === "consumo") {
+          let m = new Map();
+          ((invState && invState.ev) || []).forEach((e) => {
+            if (!invInRange(e.t, r) || e.qty >= 0 || !["sale", "produceOut", "waste"].includes(e.type)) return;
+            let o = m.get(e.itemId) || { v: 0, p: 0, w: 0, val: 0 };
+            if (e.type === "sale") o.v += -e.qty;
+            else if (e.type === "produceOut") o.p += -e.qty;
+            else o.w += -e.qty;
+            o.val += -e.value;
+            m.set(e.itemId, o);
+          });
+          let tv = 0;
+          [...m].forEach(([id, o]) => {
+            let it = invItem(id) || { name: "?", baseUnit: "" };
+            tv += o.val;
+            rows.push({
+              Elemento: it.name,
+              Tipo: (INV_KINDS[it.kind] || {}).short || "",
+              "Por ventas": invR(o.v, 2),
+              "En producción": invR(o.p, 2),
+              Mermas: invR(o.w, 2),
+              Total: invR(o.v + o.p + o.w, 2),
+              Unidad: U(it),
+              "Valor (COP)": Math.round(o.val),
+            });
+          });
+          rows.sort((a, b) => b["Valor (COP)"] - a["Valor (COP)"]);
+          kpi("Costo consumido en el periodo", money(Math.round(tv)));
+        } else if (kind === "margen" || kind === "ganancia" || kind === "simulacion") {
+          let per = new Map(),
+            revenue = 0,
+            cogs = 0,
+            noRecipeRev = 0,
+            sales = invPeriodSales(r);
+          sales.forEach((s) => {
+            revenue += saleSub(s);
+            let info = invSaleInfo(s),
+              det = new Map((info.detail || []).map((d) => [d.name, d]));
+            cogs += invState && invState.saleCogs[String(s.id)] != null ? invState.saleCogs[String(s.id)] : info.cogs;
+            (s.items || []).forEach((x) => {
+              let n = Number(x.qty) || 0,
+                rev = (Number(x.price) || 0) * n,
+                d = det.get(x.name),
+                o = per.get(x.name) || { n: 0, rev: 0, cost: 0, sim: 0, has: false };
+              o.n += n;
+              o.rev += rev;
+              if (d) {
+                o.cost += (Number(d.unitCost) || 0) * n;
+                o.has = true;
+              } else noRecipeRev += rev;
+              per.set(x.name, o);
+            });
+          });
+          if (kind === "margen") {
+            (data.products || []).forEach((p) => {
+              let s = invProductStats(p),
+                o = per.get(p.name) || { n: 0, rev: 0, cost: 0 };
+              rows.push({
+                Producto: p.name,
+                Categoría: p.category || "",
+                "Precio (COP)": Number(p.price) || 0,
+                "Costo actual (COP)": s ? Math.round(s.cost) : "",
+                "Margen (COP)": s ? Math.round(s.margin) : "",
+                "Margen %": s ? invR(s.pct, 1) : "",
+                Receta: s ? (s.resale ? "Reventa 1 a 1" : "v" + s.v.v) : "Sin receta",
+                "Se pueden preparar": s && s.can != null ? s.can : "",
+                Limita: s && s.limit ? (invItem(s.limit) || {}).name || "" : "",
+                "Vendidos en el periodo": o.n,
+                "Costo vendido (COP)": Math.round(o.cost),
+              });
+            });
+            note = "Costo y margen con la receta vigente y el costo promedio actual.";
+          } else if (kind === "ganancia") {
+            [...per].forEach(([name, o]) =>
+              rows.push({
+                Producto: name,
+                Unidades: o.n,
+                "Ingresos (COP)": Math.round(o.rev),
+                "Costo (COP)": o.has ? Math.round(o.cost) : "",
+                "Ganancia bruta (COP)": o.has ? Math.round(o.rev - o.cost) : "",
+                "Margen %": o.has && o.rev ? invR(((o.rev - o.cost) / o.rev) * 100, 1) : "",
+                Nota: o.has ? "" : "Sin receta: no tiene costo registrado",
+              }),
+            );
+            rows.sort((a, b) => b["Ingresos (COP)"] - a["Ingresos (COP)"]);
+            kpi("Ingresos (sin propinas)", money(Math.round(revenue)));
+            kpi("Costo de ventas", money(Math.round(cogs)));
+            kpi("Ganancia bruta", money(Math.round(revenue - cogs)), revenue - cogs < 0 ? "bad" : "good");
+            kpi("Margen bruto", revenue ? invFmtN(((revenue - cogs) / revenue) * 100, 1) + "%" : "—");
+            if (noRecipeRev) kpi("Ingresos de productos sin receta", money(Math.round(noRecipeRev)), "bad");
+            note = "Cada venta usa el costo con que se vendió. " + sales.length + " ventas válidas en el periodo.";
+          } else {
+            let simTotal = 0,
+              realTotal = 0;
+            [...per].forEach(([name, o]) => {
+              let p = invProductByName(name),
+                s = p ? invProductStats(p) : null;
+              if (!s && !o.has) return;
+              let sim = s ? s.cost * o.n : 0;
+              simTotal += sim;
+              realTotal += o.cost;
+              rows.push({
+                Producto: name,
+                Unidades: o.n,
+                "Ingresos (COP)": Math.round(o.rev),
+                "Costo real (COP)": Math.round(o.cost),
+                "Costo simulado (COP)": Math.round(sim),
+                "Diferencia (COP)": Math.round(sim - o.cost),
+                "Margen real %": o.rev ? invR(((o.rev - o.cost) / o.rev) * 100, 1) : "",
+                "Margen simulado %": o.rev ? invR(((o.rev - sim) / o.rev) * 100, 1) : "",
+                "Receta simulada": s ? (s.resale ? "Reventa" : "v" + s.v.v) : "Sin receta",
+              });
+            });
+            kpi("Costo real del periodo", money(Math.round(realTotal)));
+            kpi("Costo con recetas actuales", money(Math.round(simTotal)));
+            kpi("Diferencia", money(Math.round(simTotal - realTotal)), simTotal > realTotal ? "bad" : "good");
+            note = "Simulación: recalcula el periodo con las recetas vigentes y el costo promedio actual. No modifica ventas, stock ni reportes reales.";
+          }
+        } else if (kind === "conteo") {
+          let tv = 0;
+          invMovesIn(r, "count").forEach((e) => {
+            let m = e.m,
+              it = invItem(m.itemId) || { name: m.itemName, baseUnit: m.unit };
+            tv += e.value;
+            rows.push({
+              Fecha: fmtDT(e.t),
+              Elemento: it.name,
+              Teórico: m.theoretical != null ? m.theoretical : "",
+              Contado: m.counted != null ? m.counted : "",
+              Diferencia: invR(m.qty, 2),
+              Unidad: U(it),
+              "Valor diferencia (COP)": Math.round(e.value),
+              Nota: [m.note, m.reverses ? "Corrección" : ""].filter(Boolean).join(" · "),
+              Quién: invWho(m),
+            });
+          });
+          kpi("Diferencia valorizada", money(Math.round(tv)), tv < 0 ? "bad" : "good");
+        } else {
+          let type = { compras: "purchase", mermas: "waste", ajustes: "adjust" }[kind],
+            tv = 0,
+            byReason = new Map();
+          invMovesIn(r, type).forEach((e) => {
+            let m = e.m,
+              it = invItem(m.itemId) || { name: m.itemName, baseUnit: m.unit };
+            tv += e.value;
+            if (kind === "compras")
+              rows.push({
+                Fecha: fmtDT(e.t),
+                Elemento: it.name,
+                "Cantidad comprada": m.purchaseQty != null ? m.purchaseQty : "",
+                "Unidad de compra": m.purchaseUnit || "",
+                "Entra (unidad base)": invR(m.qty, 2),
+                Unidad: U(it),
+                "Costo total (COP)": Math.round(Number(m.cost) || 0),
+                "Costo unitario (COP)": invR(m.unitCost, 2),
+                Proveedor: m.supplier || "",
+                Factura: m.invoice || "",
+                Nota: [m.note, m.reason].filter(Boolean).join(" · "),
+                Quién: invWho(m),
+              });
+            else {
+              let k = m.reverses ? "Correcciones" : m.reason || "Otro",
+                o = byReason.get(k) || { n: 0, val: 0 };
+              o.n++;
+              o.val += e.value;
+              byReason.set(k, o);
+              rows.push({
+                Fecha: fmtDT(e.t),
+                Elemento: it.name,
+                Cantidad: invR(m.qty, 2),
+                Unidad: U(it),
+                Motivo: m.reason || "",
+                Nota: m.note || "",
+                "Valor (COP)": Math.round(e.value),
+                Quién: invWho(m),
+              });
+            }
+          });
+          kpi(kind === "compras" ? "Total comprado" : kind === "mermas" ? "Pérdida por mermas" : "Valor neto de ajustes", money(Math.round(Math.abs(tv))), kind === "mermas" && tv ? "bad" : "");
+          if (kind === "mermas") byReason.forEach((o, k) => kpi(k + " (" + o.n + ")", money(Math.round(-o.val)), "bad"));
+        }
+        return { kind, title: (INV_REPORTS.find((x) => x[0] === kind) || [])[1], rows, sum, note };
+      }
+      async function invRunReport() {
+        await invRefreshNow();
+        let kind = gid("invRpKind").value,
+          rep = invReportData(kind, invRange());
+        invLastReport = rep;
+        gid("invRpSum").innerHTML =
+          (rep.sum.length ? '<div class="inv-kpis">' + rep.sum.map(([l, v, c]) => '<div class="inv-kpi ' + c + '"><span>' + esc(l) + "</span><strong>" + esc(v) + "</strong></div>").join("") + "</div>" : "") +
+          (rep.note ? '<div class="sub">' + esc(rep.note) + "</div>" : "");
+        if (!rep.rows.length) {
+          gid("invRpOut").innerHTML = '<div class="notice">Sin datos para este reporte en el periodo elegido.</div>';
+          return rep;
+        }
+        let cols = Object.keys(rep.rows[0]);
+        gid("invRpOut").innerHTML =
+          '<table class="inv-hist"><thead><tr>' + cols.map((c) => "<th>" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
+          rep.rows
+            .map(
+              (row) =>
+                "<tr>" +
+                cols
+                  .map((c) => {
+                    let v = row[c],
+                      neg = typeof v === "number" && v < 0,
+                      txt = typeof v === "number" ? (/\(COP\)/.test(c) ? money(v) : invFmtN(v)) : String(v == null ? "" : v);
+                    return '<td class="' + (neg || v === "Negativo" ? "neg" : v === "Bajo el mínimo" ? "low" : "") + '">' + esc(txt) + "</td>";
+                  })
+                  .join("") +
+                "</tr>",
+            )
+            .join("") +
+          "</tbody></table>";
+        return rep;
+      }
+      function invReportExcel() {
+        let rep = invLastReport;
+        if (!rep) return;
+        if (!window.XLSX) return toast("La exportación a Excel no está disponible sin conexión la primera vez");
+        let wb = XLSX.utils.book_new(),
+          r = invRange(),
+          info = [
+            { Campo: "Reporte", Valor: rep.title },
+            { Campo: "Desde", Valor: gid("invRpFrom").value },
+            { Campo: "Hasta", Valor: gid("invRpTo").value },
+            { Campo: "Generado", Valor: new Date().toLocaleString("es-CO") },
+          ].concat(rep.sum.map(([l, v]) => ({ Campo: l, Valor: v })));
+        if (rep.note) info.push({ Campo: "Nota", Valor: rep.note });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rep.rows.length ? rep.rows : [{ Sin: "datos" }]), "Reporte");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(info), "Resumen");
+        XLSX.writeFile(wb, "bullet-inventario_" + rep.kind + "_" + stamp() + ".xlsx");
+        BulletAudit.record("invReportExported", { report: rep.kind, from: r.from || null, rows: rep.rows.length });
+      }
+      function invMovesRows() {
+        return ((invState && invState.ev) || [])
+          .filter((e) => e.m)
+          .map((e) => {
+            let m = e.m,
+              it = invItem(m.itemId) || { name: m.itemName, baseUnit: m.unit };
+            return {
+              Fecha: fmtDT(e.t),
+              Tipo: INV_MOVE_TYPES[m.type] || m.type,
+              Elemento: it.name,
+              Cantidad: invR(m.qty, 3),
+              Unidad: INV_UNITS[it.baseUnit] || it.baseUnit || "",
+              "Valor (COP)": Math.round(e.value),
+              Saldo: invR(e.after, 3),
+              Motivo: m.reason || "",
+              Proveedor: m.supplier || "",
+              Factura: m.invoice || "",
+              Nota: m.note || "",
+              Corrige: m.reverses || "",
+              Lote: m.batchId || "",
+              Conteo: m.countId || "",
+              Quién: invWho(m),
+              Registrado: fmtDT(m.createdAt),
+              ID: m.id,
+            };
+          });
+      }
+      function invRecipeRows() {
+        let out = [];
+        invRecipes.forEach((rec) => {
+          let name = rec.targetType === "prep" ? ((invItem(rec.targetId) || {}).name || rec.targetId) + " (preparación)" : (invProductByKey(rec.targetId) || {}).name || rec.productName || rec.targetId;
+          (rec.versions || []).forEach((v) =>
+            (v.lines || []).forEach((l) => {
+              let it = invItem(l.itemId) || {};
+              out.push({ Receta: name, Versión: v.v, Desde: fmtDT(v.from), Ingrediente: it.name || l.itemId, Cantidad: l.qty, Unidad: INV_UNITS[it.baseUnit] || "", "Rendimiento lote": v.yield || "", Nota: v.note || "" });
+            }),
+          );
+        });
+        return out;
+      }
+      // Exportación general a Excel: agrega las hojas de inventario.
+      const _gatherCashExport240 = gatherCashExport;
+      gatherCashExport = async function () {
+        let cx = await _gatherCashExport240();
+        try {
+          if (cx && deviceIsMain() && (invItems.length || invMoves.length)) {
+            await invRefreshNow();
+            cx.extraSheets = (cx.extraSheets || []).concat([
+              ["Inventario", invReportData("stock").rows],
+              ["Movimientos inventario", invMovesRows()],
+              ["Recetas", invRecipeRows()],
+            ]);
+          }
+        } catch (e) {
+          console.warn("Hojas de inventario:", e);
+        }
+        return cx;
+      };
+
+      // --- Calculadora ---
+      function invToggleCalc(force) {
+        let c = gid("invCalc"),
+          on = force == null ? !c.classList.contains("show") : !!force;
+        c.classList.toggle("show", on);
+        if (on) setTimeout(() => gid("invCalcDisp").focus(), 20);
+      }
+      function invCalcEval(s) {
+        s = String(s || "").replace(/,/g, ".").replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
+        if (!s.trim() || !/^[0-9+\-*/().\s]*$/.test(s)) return NaN;
+        try {
+          let v = Function('"use strict";return (' + s + ")")();
+          return typeof v === "number" && Number.isFinite(v) ? v : NaN;
+        } catch (e) {
+          return NaN;
+        }
+      }
+      function invCalcPreview() {
+        let v = invCalcEval(gid("invCalcDisp").value);
+        gid("invCalcRes").textContent = Number.isFinite(v) ? "= " + invFmtN(v, 4) : "";
+      }
+      function invCalcPress(k) {
+        let d = gid("invCalcDisp");
+        if (k === "C") d.value = "";
+        else if (k === "B") d.value = d.value.slice(0, -1);
+        else if (k === "=") {
+          let v = invCalcEval(d.value);
+          if (Number.isFinite(v)) d.value = String(invR(v, 6));
+        } else d.value += k;
+        invCalcPreview();
+        d.focus();
+      }
+      function invCalcKey(e) {
+        if (e.key === "Enter" || e.key === "=") {
+          e.preventDefault();
+          invCalcPress("=");
+        } else if (e.key === "Escape") invToggleCalc(false);
+      }
+      function invCalcConv(f) {
+        let d = gid("invCalcDisp"),
+          v = invCalcEval(d.value);
+        if (!Number.isFinite(v)) return toast("Escribe primero un valor");
+        d.value = String(invR(v * f, 4));
+        invCalcPreview();
+      }
+      function invCalcUse() {
+        let v = invCalcEval(gid("invCalcDisp").value);
+        if (!Number.isFinite(v)) return toast("No hay un resultado para pasar");
+        let t = invCalcTarget;
+        if (!t || !document.body.contains(t)) return toast("Toca primero el campo donde quieres el resultado");
+        t.value = String(invR(v, 4));
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        t.focus();
+        toast("Resultado pasado al campo");
+      }
+
+      // --- Impresión del cierre de caja ---
+      // A4 como formato adicional (ticket 58/80 mm, carta y A4).
+      printFormat = function () {
+        try {
+          let v = localStorage.getItem(PRINT_FORMAT_KEY);
+          return ["58", "80", "letter", "a4"].includes(v) ? v : "80";
+        } catch (e) {
+          return "80";
+        }
+      };
+      function invPageStyle() {
+        let f = printFormat(),
+          ps = gid("printPageStyle");
+        if (!ps) {
+          ps = document.createElement("style");
+          ps.id = "printPageStyle";
+          document.head.appendChild(ps);
+        }
+        ps.textContent = f === "letter" ? "@page{size:letter;margin:15mm}" : f === "a4" ? "@page{size:A4;margin:15mm}" : "@page{size:" + f + "mm auto;margin:0}";
+      }
+      const _printTextReport240 = printTextReport;
+      printTextReport = function (title, lines) {
+        _printTextReport240(title, lines);
+        invPageStyle();
+      };
+      const _printReceipt240 = printReceipt;
+      printReceipt = function () {
+        _printReceipt240();
+        invPageStyle();
+      };
+      // Detalle de los movimientos de caja dentro del corte X y del cierre Z.
+      let cashPrintMoves = null,
+        cashPrintMovesAt = 0;
+      const _cashReportLines240 = cashReportLines;
+      cashReportLines = function (h, kind, W) {
+        let L = _cashReportLines240(h, kind, W),
+          byId = new Map();
+        (cashPrintMoves || []).concat(cashMovements || []).forEach((m) => m && m.id && byId.set(m.id, m));
+        let moves = [...byId.values()].filter((m) => m.sessionId === h.id);
+        if (!moves.length) return L;
+        let at = L.findIndex((x) => /^Firma: /.test(x));
+        if (at < 0) return L;
+        let add = ["-".repeat(W), "Movimientos de caja (" + moves.length + ")"];
+        moves
+          .slice()
+          .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+          .forEach((m) => {
+            let t = new Date(m.createdAt);
+            add.push(rcRow((isNaN(t) ? "" : t.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) + " ") + (m.type === "in" ? "Ingreso" : "Salida"), (m.type === "in" ? "" : "-") + fmt(m.amount), W));
+            wrapTxt("  " + [m.reason, m.category, m.operator || m.deviceName].filter(Boolean).join(" · "), W).forEach((x) => add.push(x));
+          });
+        // Se inserta antes de la línea en blanco que precede a la firma.
+        let pos = at > 0 && L[at - 1] === "" ? at - 1 : at;
+        return L.slice(0, pos).concat(add, L.slice(pos));
+      };
+      // La impresión sigue siendo inmediata (síncrona): los movimientos de
+      // cierres anteriores se precargan al abrir la caja o la ventana de impresión.
+      async function cashLoadPrintMoves() {
+        try {
+          cashPrintMoves = await allCashMovements();
+        } catch (e) {}
+      }
+      const _renderCashDashboard240 = renderCashDashboard;
+      renderCashDashboard = function () {
+        let r = _renderCashDashboard240.apply(this, arguments);
+        if (deviceIsMain() && Date.now() - cashPrintMovesAt > 60000) {
+          cashPrintMovesAt = Date.now();
+          cashLoadPrintMoves();
+        }
+        return r;
+      };
+      function openCashPrint() {
+        let list = allCashSessions().filter((h) => h.status === "closed"),
+          open = cashSession && cashSession.status === "open";
+        if (!list.length && !open) return toast("Aún no hay cierres para imprimir");
+        gid("cpSession").innerHTML =
+          list
+            .slice(0, 80)
+            .map((h, i) => {
+              let r = sessionSummary(h);
+              return '<option value="' + esc(h.id) + '">' + esc((i === 0 ? "Último cierre · " : "") + fmtDT(h.closedAt) + " · " + (r.closedBy || "") + " · " + (r.diff == null ? "" : diffInfo(r.diff).label)) + "</option>";
+            })
+            .join("") + (open ? '<option value="__x">Caja abierta: corte X (sin cerrar)</option>' : "");
+        gid("cpFormat").value = printFormat();
+        invShow("cashPrintModal");
+      }
+      async function cashPrintRun() {
+        let id = gid("cpSession").value;
+        setPrintFormat(gid("cpFormat").value);
+        if (gid("printFormat")) gid("printFormat").value = gid("cpFormat").value;
+        invClose("cashPrintModal");
+        await cashLoadPrintMoves();
+        if (id === "__x") printCashX();
+        else printCashZ(id);
+        BulletAudit.record("cashReportPrinted", { sessionId: id === "__x" ? (cashSession && cashSession.id) || null : id, kind: id === "__x" ? "X" : "Z", format: printFormat() });
+      }
+
+      // --- Integración con pestañas y rol ---
+      const _switchTab240 = switchTab;
+      switchTab = function (tab) {
+        if (tab === "inventario" && !deviceIsMain()) tab = "venta";
+        _switchTab240(tab);
+        document.body.classList.toggle("inv-on", tab === "inventario");
+        if (tab === "inventario") {
+          invRender();
+          invRefresh(0);
+        }
+      };
+      const _renderRoleUI240 = renderRoleUI;
+      renderRoleUI = function () {
+        _renderRoleUI240();
+        let main = deviceIsMain(),
+          b = gid("invTab");
+        if (b) b.style.display = main ? "" : "none";
+        if (!main && gid("inventario") && gid("inventario").classList.contains("active")) switchTab("venta");
+        if (main) invRefresh(500);
+      };
+      invMountUI();
+      (async function invBoot() {
+        try {
+          await BulletStore.ready;
+        } catch (e) {}
+        try {
+          let [a, b, c] = await Promise.all(["invItems", "invRecipes", "invMoves"].map((k) => BulletStore.getMeta(k).catch(() => null)));
+          const merge = (cur, saved) => {
+            if (!Array.isArray(saved)) return cur;
+            let have = new Set(cur.map((x) => x.id));
+            return cur.concat(saved.filter((x) => x && x.id && !have.has(x.id)));
+          };
+          invItems = merge(invItems, a);
+          invRecipes = merge(invRecipes, b);
+          invMoves = merge(invMoves, c);
+        } catch (e) {
+          console.warn("Inventario local:", e);
+        }
+        invRefresh(0);
+      })();
+      setInterval(() => {
+        if (deviceIsMain()) invRefresh(0);
+      }, 60000);
       renderArchiveLog();
 
       renderProducts();

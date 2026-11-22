@@ -1,5 +1,6 @@
 rules_version = '2';
-// Bullet POS 2.3.0 — Reglas de seguridad de Firestore.
+// Bullet POS 2.4.0 — Reglas de seguridad de Firestore.
+// 2.4.0: inventario y costos (invItems, invRecipes, invMovements).
 // 2.3.0: solicitudes de cobro (chargeRequests) y permiso «Cobro directo».
 // 2.2.0: personal con PIN (staff).
 // 2.1.0: generación de datos (control/generation) para el reinicio real y
@@ -170,6 +171,44 @@ service cloud.firestore {
     match /cafeterias/{cafeId}/products/{productId} {
       allow read: if approvedDevice(cafeId);
       allow write: if isMainOrBootstrap(cafeId);
+    }
+
+    // --- 2.4.0: inventario y costos ---
+    // Elementos (materia prima, insumos, preparaciones, reventa) y recetas:
+    // todos los equipos autorizados los leen (un equipo con «Cobro directo»
+    // guarda en su venta el consumo y el costo); solo un PC Main los modifica.
+    match /cafeterias/{cafeId}/invItems/{itemId} {
+      allow read: if approvedDevice(cafeId);
+      allow create, update: if isMainOrBootstrap(cafeId)
+        && request.resource.data.name is string
+        && request.resource.data.kind in ['raw', 'supply', 'prep', 'resale']
+        && request.resource.data.baseUnit in ['g', 'ml', 'u'];
+      allow delete: if false;
+    }
+    // Recetas versionadas: una versión nunca se elimina.
+    match /cafeterias/{cafeId}/invRecipes/{recipeId} {
+      allow read: if approvedDevice(cafeId);
+      allow create: if isMainOrBootstrap(cafeId) && request.resource.data.versions is list;
+      allow update: if isMainOrBootstrap(cafeId)
+        && request.resource.data.versions is list
+        && request.resource.data.versions.size() >= resource.data.versions.size();
+      allow delete: if false;
+    }
+    // Compras, mermas, ajustes, conteos y lotes de producción: solo un PC Main
+    // los crea, de la generación vigente; no se modifican (solo el reintento
+    // idéntico) y solo el reinicio global borra los de generaciones anteriores.
+    // El consumo por venta no es un movimiento: viaja dentro de la venta
+    // (sales/{id}.inv), así que solo existe junto con una venta válida.
+    match /cafeterias/{cafeId}/invMovements/{moveId} {
+      allow read: if isMainOrBootstrap(cafeId);
+      allow create: if isMainOrBootstrap(cafeId)
+        && genOk(cafeId, request.resource.data)
+        && request.resource.data.id == moveId
+        && request.resource.data.itemId is string
+        && request.resource.data.qty is number
+        && request.resource.data.type in ['purchase', 'waste', 'adjust', 'count', 'produceIn', 'produceOut'];
+      allow update: if isMainOrBootstrap(cafeId) && request.resource.data == resource.data;
+      allow delete: if isMainOrBootstrap(cafeId) && oldGen(cafeId, resource.data);
     }
 
     // --- Ventas ---
