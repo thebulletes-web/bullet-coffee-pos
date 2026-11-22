@@ -135,6 +135,7 @@ Sobre el link:
 ### 4.1 En el equipo
 1. Abre el link de activación. En iPhone, ábrelo en **Safari**.
 2. La app pregunta: **«¿Activar este equipo para «Trailer La Esquina»?»**. Acepta.
+   - Si alguien abrió la dirección de la app **sin el link**, verá «Activa este equipo». Ahí puede pegar el código o el link. **No** debe pulsar «Es un equipo de bullet-coffee», porque esa opción es solo para Bullet Coffee.
 3. Sale **«Instala Bullet POS»**:
    - **PC o Android:** pulsa **Instalar** y confirma. Después abre la app desde el ícono.
    - **iPhone:** pulsa **«Copiar código de activación»**, sigue los pasos de Compartir → «Agregar a inicio», abre la app desde el ícono y **pega el código** cuando lo pida.
@@ -168,7 +169,10 @@ Esto solo funciona mientras el negocio **no tenga PC Main**. Después, todos los
 3. En el **PC Main**, ve a **Ajustes → Dispositivos** y autorízalo.
    - Con el perfil «Negocio pequeño», el equipo queda **con cobro directo**.
    - Con el perfil «con meseros», queda **sin cobro directo**: el cobro lo hace el PC Main.
-4. Si el negocio tendrá un segundo PC Main, autorízalo como en Bullet Coffee (código de vinculación del segundo Main).
+4. **Segundo PC Main** (si el negocio lo tendrá):
+   1. Autoriza el equipo como dispositivo normal (punto 3).
+   2. En el PC Main, ve a **Ajustes → «Autorizar segundo Main»** y escribe la contraseña administrativa. Sale el código, válido por 10 minutos.
+   3. En el otro equipo, toca el **indicador de sincronización** de arriba. En la primera tarjeta, «Vincular como segundo PC Main», escribe el código y pulsa **Vincular**. Ese equipo no necesita ver Ajustes para esto.
 5. Cada persona crea su **PIN** al usar el equipo por primera vez.
 
 ---
