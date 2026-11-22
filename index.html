@@ -2756,7 +2756,7 @@
         category = "Todos";
       const MIGRATION_KEY = "cafe_pos_migration_ready_v1";
       const APP_NAME = "Bullet POS",
-        APP_VERSION = "2.4.0",
+        APP_VERSION = "2.4.1",
         APP_BUILD = "2026-11-22";
       let received = "",
         rcSale = null,
@@ -17425,6 +17425,9 @@
             appVersion: APP_VERSION,
           };
         list = list.map((m) => ({ id: makeId(), at: now, ...base, ...m, itemName: (invItem(m.itemId) || {}).name || m.itemName || "" }));
+        // Todos quedan como pendientes antes del primer envío: una instantánea
+        // que llegue entre envíos no puede descartar los que aún no salieron.
+        if (firebaseConfigured()) list.forEach((m) => invPend.set("invMovements/" + m.id, m));
         invMoves = invMoves.concat(list);
         invPersist();
         for (let m of list) await invSave("invMovements", m);
@@ -19128,6 +19131,222 @@
       setInterval(() => {
         if (deviceIsMain()) invRefresh(0);
       }, 60000);
+      // ===== Bullet POS 2.4.1: instalar la app al vincular un equipo nuevo =====
+      // Un equipo nuevo que abre el link en el navegador ve primero «Instala
+      // Bullet POS» (Android y PC: ventana de instalación del sistema; iPhone:
+      // los pasos de Safari). La sincronización —y con ella la solicitud de
+      // autorización al PC Main— empieza en la app instalada, o en el navegador
+      // si la persona elige «Continuar en el navegador». En iPhone la app
+      // instalada no comparte datos con Safari: así no queda una solicitud
+      // duplicada. Ningún navegador permite instalar sin que la persona acepte.
+      const INSTALL_SKIP_KEY = "bullet_install_skip_v241",
+        INSTALL_BANNER_KEY = "bullet_install_banner_v241";
+      let installGateOn = false,
+        installDone = false,
+        installedElsewhere = false,
+        installDismissed = false;
+      function isIOSDevice() {
+        if (window.__forceIOS) return true;
+        let ua = navigator.userAgent || "";
+        return /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      }
+      function isIOSSafari() {
+        return isIOSDevice() && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent || "");
+      }
+      function installGateNeeded() {
+        try {
+          return (
+            (location.protocol === "https:" || window.__forceInstallGate === true) &&
+            firebaseConfigured() &&
+            !isStandalone() &&
+            !localStorage.getItem(LAST_UID_KEY) &&
+            !localStorage.getItem(INSTALL_SKIP_KEY)
+          );
+        } catch (e) {
+          return false;
+        }
+      }
+      const INSTALL_CSS = `
+      #installGate{z-index:75}
+      #installGate .lock-box{text-align:center}
+      #installGate .ig-icon{width:76px;height:76px;border-radius:18px;box-shadow:var(--shadow)}
+      .ig-steps{text-align:left;margin:12px auto;max-width:400px;padding:0;list-style:none;counter-reset:ig}
+      .ig-steps li{counter-increment:ig;display:flex;gap:10px;align-items:flex-start;margin:9px 0;font-size:14.5px}
+      .ig-steps li:before{content:counter(ig);flex:0 0 26px;height:26px;border-radius:99px;background:var(--green);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
+      .ig-share{display:inline-block;border:1.5px solid var(--green);border-radius:5px;padding:0 4px;font-weight:800;color:var(--green)}
+      #installBanner{position:fixed;left:12px;bottom:12px;z-index:54;max-width:min(560px,calc(100vw - 24px));background:var(--green);color:#fff;border-radius:14px;padding:10px 12px;display:none;align-items:center;gap:10px;box-shadow:var(--shadow);font-size:14px}
+      #installBanner.show{display:flex}
+      #installBanner .btn{background:#fff;color:var(--green);font-weight:800}
+      #installBanner .x{background:transparent;color:#fff;font-size:18px;padding:0 4px}`;
+      const INSTALL_HTML = `
+    <div class="lock-screen" id="installGate">
+      <div class="lock-box">
+        <img class="ig-icon" src="icon-192.png" alt="" />
+        <h2 id="igTitle" style="color: var(--green)">Instala Bullet POS</h2>
+        <p class="sub" id="igText"></p>
+        <ol class="ig-steps" id="igSteps"></ol>
+        <div class="modal-actions">
+          <button class="btn primary" id="igInstall" onclick="installGateInstall()">Instalar Bullet POS</button
+          ><button class="btn" id="igSkip" onclick="installGateSkip()">Continuar en el navegador</button>
+        </div>
+        <p class="notice" id="igNote"></p>
+      </div>
+    </div>
+    <div id="installBanner"><span id="ibText"></span><button class="btn small" id="ibBtn" onclick="installBannerInstall()">Instalar</button><button class="x" title="Cerrar" onclick="installBannerClose()">✕</button></div>`;
+      function mountInstallUI() {
+        if (gid("installGate")) return;
+        let st = document.createElement("style");
+        st.textContent = INSTALL_CSS;
+        document.head.appendChild(st);
+        let tmp = document.createElement("div");
+        tmp.innerHTML = INSTALL_HTML;
+        [...tmp.children].forEach((c) => document.body.appendChild(c));
+      }
+      function showInstallGate() {
+        installGateOn = true;
+        renderInstallGate();
+        gid("installGate").style.display = "flex";
+        setSyncStatus("Instala la app para vincular este equipo", "La solicitud al PC Main se enviará desde la app instalada");
+      }
+      function hideInstallGate() {
+        installGateOn = false;
+        gid("installGate").style.display = "none";
+      }
+      function renderInstallGate() {
+        if (!installGateOn) return;
+        let T = gid("igTitle"),
+          X = gid("igText"),
+          S = gid("igSteps"),
+          I = gid("igInstall"),
+          K = gid("igSkip"),
+          N = gid("igNote");
+        I.style.display = "none";
+        K.textContent = "Continuar en el navegador";
+        S.innerHTML = "";
+        N.textContent = "";
+        if (installDone || installedElsewhere) {
+          T.textContent = installDone ? "¡Listo, Bullet POS quedó instalada!" : "Bullet POS ya está instalada";
+          X.textContent = "Ábrela desde el ícono de tu pantalla de inicio (o del escritorio). Allí se vincula este equipo con el PC Main. Ya puedes cerrar esta pestaña del navegador.";
+          K.textContent = "Seguir en el navegador";
+          N.textContent = "Si sigues en el navegador, este equipo quedará vinculado aquí y no en la app.";
+          return;
+        }
+        T.textContent = "Instala Bullet POS";
+        if (isIOSDevice()) {
+          X.textContent = "En iPhone y iPad la app se instala desde Safari en tres pasos:";
+          S.innerHTML =
+            '<li><span>Toca <span class="ig-share">⬆</span> <b>Compartir</b> (abajo en la pantalla, o arriba en el iPad).</span></li>' +
+            "<li><span>Elige <b>«Agregar a inicio»</b> (desliza hacia abajo si no lo ves).</span></li>" +
+            "<li><span>Toca <b>«Agregar»</b> y abre <b>Bullet POS</b> desde tu pantalla de inicio.</span></li>";
+          N.textContent = isIOSSafari()
+            ? "Importante en iPhone: la app instalada guarda sus datos aparte de Safari. Vincula el equipo desde la app instalada, no desde aquí."
+            : "Estás en otro navegador: copia el link y ábrelo en Safari para poder instalarla.";
+          return;
+        }
+        X.textContent = "Úsala como una app: ícono en la pantalla de inicio, pantalla completa y funciona sin internet. Después la vinculas con el PC Main.";
+        if (deferredInstall) {
+          I.style.display = "";
+          N.textContent = "Al tocar «Instalar», el sistema te pedirá confirmar.";
+        } else {
+          S.innerHTML =
+            "<li><span>Abre el menú del navegador <b>⋮</b> (arriba a la derecha).</span></li>" +
+            "<li><span>Elige <b>«Instalar aplicación»</b> o <b>«Agregar a la pantalla principal»</b>.</span></li>" +
+            "<li><span>Abre <b>Bullet POS</b> desde el ícono que aparece.</span></li>";
+          N.textContent = "Si en unos segundos aparece el botón «Instalar», también puedes usarlo. Funciona en Chrome y Edge.";
+        }
+      }
+      async function installGateInstall() {
+        if (!deferredInstall) return renderInstallGate();
+        let ev = deferredInstall;
+        deferredInstall = null;
+        try {
+          ev.prompt();
+          let ch = await ev.userChoice;
+          if (ch && ch.outcome === "accepted") installDone = true;
+          else gid("igNote").textContent = "No se instaló. Puedes intentarlo desde el menú ⋮ o continuar en el navegador.";
+        } catch (e) {
+          console.warn("Instalación:", e);
+        }
+        renderPwa();
+        renderInstallGate();
+        if (!installDone && !deferredInstall) gid("igNote").textContent = "No se instaló. Usa el menú ⋮ → «Instalar aplicación» o continúa en el navegador.";
+      }
+      function installGateSkip() {
+        if (isIOSSafari() && !installDone && !confirm("Si vinculas el equipo en Safari y después instalas la app, tendrás que vincularlo otra vez desde la app. ¿Continuar en el navegador?")) return;
+        try {
+          localStorage.setItem(INSTALL_SKIP_KEY, String(Date.now()));
+        } catch (e) {}
+        hideInstallGate();
+        startCloudSync();
+      }
+      // Aviso discreto para equipos que ya trabajan en el navegador.
+      function renderInstallBanner() {
+        let b = gid("installBanner");
+        if (!b) return;
+        let off = false;
+        try {
+          off = Date.now() - Number(localStorage.getItem(INSTALL_BANNER_KEY) || 0) < 7 * 86400000;
+        } catch (e) {}
+        let show = !installGateOn && !isStandalone() && !off && !installDismissed && (deferredInstall || installedElsewhere || installDone);
+        b.classList.toggle("show", !!show);
+        if (!show) return;
+        let ready = installDone || installedElsewhere;
+        gid("ibText").textContent = ready ? "Bullet POS ya está instalada en este equipo: ábrela desde tu pantalla de inicio." : "Usa Bullet POS como app en este equipo.";
+        gid("ibBtn").style.display = ready ? "none" : "";
+      }
+      async function installBannerInstall() {
+        if (!deferredInstall) return;
+        let ev = deferredInstall;
+        deferredInstall = null;
+        try {
+          ev.prompt();
+          let ch = await ev.userChoice;
+          if (ch && ch.outcome === "accepted") installDone = true;
+        } catch (e) {}
+        renderPwa();
+        renderInstallBanner();
+      }
+      function installBannerClose() {
+        installDismissed = true;
+        try {
+          localStorage.setItem(INSTALL_BANNER_KEY, String(Date.now()));
+        } catch (e) {}
+        renderInstallBanner();
+      }
+      window.addEventListener("beforeinstallprompt", () => setTimeout(() => (renderInstallGate(), renderInstallBanner()), 0));
+      window.addEventListener("appinstalled", () => {
+        installDone = true;
+        renderInstallGate();
+        renderInstallBanner();
+      });
+      // ¿La app ya está instalada? (Chrome en Android y PC, con related_applications).
+      if (navigator.getInstalledRelatedApps && !isStandalone())
+        navigator
+          .getInstalledRelatedApps()
+          .then((list) => {
+            installedElsewhere = (list || []).some((a) => a && a.platform === "webapp");
+            renderInstallGate();
+            renderInstallBanner();
+          })
+          .catch(() => {});
+      const _renderPwa241 = renderPwa;
+      renderPwa = function () {
+        _renderPwa241();
+        let h = gid("pwaHelp");
+        if (h && !isStandalone() && isIOSDevice())
+          h.textContent = "En iPhone/iPad: abre esta página en Safari, toca Compartir y elige «Agregar a inicio». La app instalada guarda sus datos aparte de Safari: si el equipo ya está vinculado aquí, habrá que vincularlo otra vez desde la app.";
+      };
+      // La sincronización de un equipo nuevo espera a que elija instalar o seguir.
+      const _startCloudSync241 = startCloudSync;
+      startCloudSync = async function (fromRestore = false) {
+        if (installGateNeeded()) {
+          showInstallGate();
+          return;
+        }
+        return _startCloudSync241(fromRestore);
+      };
+      mountInstallUI();
+      setTimeout(renderInstallBanner, 1500);
       renderArchiveLog();
 
       renderProducts();

@@ -1,6 +1,28 @@
 BULLET COFFEE POS — INTEGRACIÓN FIREBASE + GITHUB PAGES
 ======================================================
 
+VERSIÓN 2.4.1 (instalar la app al vincular un equipo nuevo)
+-----------------------------------------------------------
+Cambian index.html, sw.js y manifest.webmanifest (las reglas son las de 2.4.0).
+- Un equipo nuevo que abre el link en el navegador ve primero «Instala
+  Bullet POS»:
+  · Android y PC (Chrome/Edge): botón «Instalar» que abre la ventana del
+    sistema (la persona confirma). Ningún navegador permite instalar sin
+    que la persona acepte.
+  · iPhone/iPad: los tres pasos de Safari (Compartir > Agregar a inicio).
+  · Opción «Continuar en el navegador» si no se puede instalar.
+- La solicitud de autorización al PC Main se envía desde la app instalada
+  (o al elegir seguir en el navegador). En iPhone la app instalada guarda sus
+  datos aparte de Safari: así no queda una solicitud duplicada.
+- Al terminar la instalación: «Abre Bullet POS desde tu pantalla de inicio».
+- Los equipos que ya trabajan en el navegador ven un aviso discreto para
+  instalarla (se puede cerrar por 7 días), o «ya está instalada: ábrela»
+  si el navegador detecta la app.
+- manifest: en Android, los links a la app (por WhatsApp, por ejemplo) se
+  abren en la app instalada y reutilizan la ventana abierta.
+- Corrección: un lote de producción con varios movimientos ya no puede
+  perder uno si llega una actualización de Firebase entre envíos.
+
 VERSIÓN 2.4.0 (inventario y costos; imprimir cierre de caja)
 ------------------------------------------------------------
 Cambian index.html, sw.js y firestore.rules.
