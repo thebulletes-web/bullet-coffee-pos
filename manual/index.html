@@ -51,6 +51,7 @@
       section.sec h2 .n { background: var(--soft); color: var(--green); border-radius: 10px; font-size: 15px; padding: 3px 10px; }
       section.sec .lead { color: var(--muted); margin: 0 0 14px; }
       h3 { margin: 22px 0 6px; font-size: 18px; }
+      h3[id] { scroll-margin-top: 80px; }
       ol, ul { padding-left: 22px; }
       li { margin: 4px 0; }
       .btnname { background: var(--soft); color: var(--green); border-radius: 7px; padding: 1px 7px; font-weight: 700; font-size: 0.93em; white-space: nowrap; }
@@ -137,7 +138,7 @@
         <a href="#historial">11. Historial</a>
         <div class="grp">Administración</div>
         <a href="#productos">12. Productos</a>
-        <a href="#inventario">13. Inventario y costos</a>
+        <a href="#inventario">13. Inventario y costos (guía)</a>
         <a href="#ajustes">14. Ajustes</a>
         <div class="grp">Ayuda</div>
         <a href="#offline">15. Sin internet y bloqueos</a>
@@ -398,20 +399,170 @@
         </section>
 
         <section class="sec" id="inventario">
-          <h2><span class="n">13</span> Inventario y costos</h2>
-          <p class="lead">Opcional. Cada venta descuenta su receta y te dice cuánto ganas de verdad.</p>
-          <figure><img src="img/inventario.jpg" alt="Inventario" /><figcaption>Elementos por tipo, stock, costo y alertas</figcaption></figure>
+          <h2><span class="n">13</span> Inventario y costos: guía del administrador</h2>
+          <p class="lead">Opcional y solo en el PC Main. Cada venta descuenta su receta y te dice cuánto ganas de verdad.</p>
+          <div class="note" style="background:#eef3ef;border-left-color:#28584d"><b>En esta sección:</b> <a href="#inv-idea">La idea clave</a> · <a href="#inv-tipos">Los cinco tipos</a> · <a href="#inv-unidades">Las dos unidades</a> · <a href="#inv-crear">Crear un elemento</a> · <a href="#inv-compras">Registrar compras</a> · <a href="#inv-lotes">Preparaciones y lotes</a> · <a href="#inv-recetas">Recetas</a> · <a href="#inv-control">Mermas, ajustes y conteos</a> · <a href="#inv-rutina">Rutina</a> · <a href="#inv-errores">Errores comunes</a></div>
+          <figure><img src="img/inventario.jpg" alt="Inventario" /><figcaption>Elementos por tipo, stock, costo, alertas y el filtro «Archivados»</figcaption></figure>
+
+          <h3 id="inv-idea">La idea clave</h3>
+          <p><b>Los elementos tienen stock; los productos de venta tienen receta.</b> Cuando se vende un producto, la app mira su receta y descuenta de cada elemento la cantidad indicada. Todo el inventario funciona con esa regla.</p>
+          <ol>
+            <li><b>Compra:</b> entra café, leche, vasos… al stock de cada elemento.</li>
+            <li><b>Producir lote</b> (solo preparaciones): con café y agua se produce cold brew, que entra a su propio stock.</li>
+            <li><b>Receta:</b> cada producto de venta dice qué elementos usa y cuánto (por ejemplo, 150 ml de cold brew por vaso).</li>
+            <li><b>Venta:</b> al cobrar un producto, la app descuenta automáticamente su receta.</li>
+            <li><b>Control:</b> mermas, ajustes y conteos físicos corrigen las diferencias con la realidad.</li>
+          </ol>
+
+          <h3 id="inv-tipos">Los cinco tipos</h3>
+          <p>Antes de crear algo, decide qué tipo es. Es la decisión que más errores evita.</p>
+          <div class="tw"><table>
+            <tr><th>Tipo</th><th>Qué es</th><th>Cómo entra al stock</th><th>Ejemplos</th></tr>
+            <tr><td><b>Materia prima</b></td><td>Ingrediente que se compra</td><td>Compra</td><td>Café en grano, leche, limón, agua</td></tr>
+            <tr><td><b>Insumo</b></td><td>Material desechable que se compra</td><td>Compra</td><td>Vasos, tapas, pitillos, servilletas</td></tr>
+            <tr><td><b>Preparación</b></td><td>Algo que se prepara aquí con otros elementos</td><td>Producir lote</td><td>Cold brew, jarabe de panela</td></tr>
+            <tr><td><b>Reventa</b></td><td>Producto que se compra y se vende igual</td><td>Compra</td><td>Agua en botella, gaseosa</td></tr>
+            <tr><td><b>Producto de venta</b></td><td>Lo que se cobra en el POS</td><td>No tiene stock: descuenta su receta</td><td>Cold Brew 12 oz, Cappuccino</td></tr>
+          </table></div>
+          <div class="tip"><b>Pregunta para decidir:</b> ¿lo compramos listo o lo preparamos nosotros? Si lo compran listo, es materia prima o insumo. Si lo preparan con otros ingredientes, es preparación.</div>
+
+          <h3 id="inv-unidades">Las dos unidades de cada elemento</h3>
+          <p>Cada elemento tiene una unidad pequeña, con la que se descuenta (<b>unidad base</b>), y una grande, con la que se compra (<b>unidad de compra</b>).</p>
+          <div class="tw"><table>
+            <tr><th>Elemento</th><th>Unidad base (se descuenta)</th><th>Unidad de compra</th><th>Equivale a</th></tr>
+            <tr><td>Café en grano</td><td>g</td><td>kg · Bolsa</td><td>1000 · 900 (o lo que traiga la bolsa)</td></tr>
+            <tr><td>Leche</td><td>ml</td><td>L</td><td>1000</td></tr>
+            <tr><td>Agua</td><td>ml</td><td>L</td><td>1000</td></tr>
+            <tr><td>Cold brew</td><td>ml</td><td>— (se produce)</td><td>—</td></tr>
+            <tr><td>Vasos 12 oz</td><td>unidad</td><td>Paquete</td><td>50</td></tr>
+            <tr><td>Limón</td><td>unidad</td><td>Bolsa</td><td>30</td></tr>
+          </table></div>
           <ul>
-            <li><b>Tipos de elemento:</b> materia prima, insumos, preparaciones (lotes) y reventa (1 a 1).</li>
-            <li><b>Cada elemento tiene:</b> unidad base y unidad de compra (1 kg = 1.000 g), stock mínimo, proveedor y costo. El stock y el costo promedio se calculan solos.</li>
-            <li><b>Movimientos:</b> <span class="btnname">Compra</span>, <span class="btnname">Merma</span>, <span class="btnname">Ajuste</span>, <span class="btnname">Conteo físico</span> y <span class="btnname">Producir lote</span>. No se borran: <span class="btnname">Corregir</span> crea un movimiento contrario.</li>
-            <li><b>Eliminar o archivar:</b> un elemento sin movimientos, recetas ni ventas se puede <span class="btnname">Eliminar</span>. Si ya tiene historial, se <span class="btnname">Archiva</span>: deja de aparecer, conserva su historial y se reactiva desde el filtro <span class="btnname">Archivados</span>.</li>
-            <li><b>Preparaciones:</b> no llevan unidad ni costo de compra; su costo sale de los ingredientes. El <b>rendimiento por lote</b> es lo que sale del lote (por ejemplo, ml), no los vasos: si es menor que lo que usa un vaso de alguna receta, la app avisa.</li>
-            <li><b>Avisos para no equivocarte:</b> al crear un elemento o registrar una compra verás su costo por unidad base («= $ 79 por g») y un aviso si cambia más de un 50 %. También avisa si creas un elemento o un producto con un nombre igual o muy parecido a otro.</li>
+            <li>Las <b>compras</b> se registran en la unidad grande: «compré 3 kg», y la app suma 3.000 g.</li>
+            <li>Las <b>recetas</b> siempre van en la unidad pequeña: «18 g de café», «150 ml de cold brew».</li>
+            <li>El campo <b>«Equivale a»</b> nunca puede ser 0: es cuánto trae una unidad de compra, no el precio.</li>
           </ul>
-          <figure><img src="img/receta.jpg" alt="Receta del producto" /><figcaption>Receta: el costo de cada ingrediente, el costo total, el margen y cuántas unidades alcanzan</figcaption></figure>
-          <p>En la receta, debajo de cada ingrediente se ve su cuenta (por ejemplo, «150 ml × $ 9/ml = $ 1.350»). Al guardar, la app pide confirmar si un ingrediente usa una unidad de compra completa o más por cada venta (por ejemplo, 1.000 ml de leche por vaso) o si el costo supera el precio de venta.</p>
-          <div class="tip">Cada cambio de receta crea una <b>versión nueva</b>: las ventas pasadas conservan su costo. Nunca se bloquea una venta por falta de stock; el stock queda en rojo y aparece un aviso. En <span class="btnname">Reportes</span> verás el consumo, las mermas, la ganancia bruta y más, con exportación a Excel. La <span class="btnname">🧮 Calculadora</span> convierte unidades.</div>
+
+          <h3 id="inv-crear">Crear un elemento</h3>
+          <p>Antes de crear uno, búscalo en el buscador por si ya existe. Si escribes un nombre igual o muy parecido a otro (aunque esté archivado), la app te muestra los parecidos y pide confirmar.</p>
+          <ol>
+            <li><span class="btnname">Inventario y costos → ＋ Elemento</span>.</li>
+            <li><b>Nombre:</b> claro y único. Ejemplo: «Leche entera», no «Leche 2».</li>
+            <li><b>Tipo:</b> según la tabla de los cinco tipos.</li>
+            <li><b>Categoría:</b> la misma que usan en el menú (Cafés, Bebidas frías…).</li>
+            <li><b>Unidad base:</b> g, ml o unidad.</li>
+            <li><b>Unidad de compra</b> y <b>Equivale a:</b> por ejemplo «kg» y «1000».</li>
+            <li><b>Costo de compra por unidad de compra:</b> lo que se paga por una unidad grande. Ejemplo: 1 kg de café a $79.000 → escribe 79000. Debajo verás <b>«= $ 79 por g»</b>. Si ese costo cambia más de un 50 % respecto al que tenía, la app lo avisa y pide confirmar.</li>
+            <li><b>Stock mínimo:</b> en unidad base. Por debajo de esa cantidad aparece en «Bajo el mínimo».</li>
+            <li><b>Proveedor:</b> opcional.</li>
+            <li><b>Activo</b> marcado → <span class="btnname">Guardar elemento</span>.</li>
+          </ol>
+          <p>Un elemento nuevo empieza con 0 de stock. Para que tenga existencias hay que registrar una compra.</p>
+          <div class="tip"><b>Eliminar o archivar:</b> si un elemento no tiene movimientos, ni está en recetas ni en ventas, su ventana muestra <span class="btnname">Eliminar</span>. Si ya tiene historial, muestra <span class="btnname">Archivar</span>: desaparece de las listas sin perder su historial, y se reactiva desde el filtro <span class="btnname">Archivados</span>.</div>
+
+          <h3 id="inv-compras">Registrar compras</h3>
+          <p>Cada vez que llega mercancía, regístrala el mismo día. Si no, el stock queda bajo y las ventas lo dejan en negativo.</p>
+          <ol>
+            <li>Pulsa <span class="btnname">Compra</span>: arriba en Inventario, o dentro del elemento.</li>
+            <li>Elige el elemento.</li>
+            <li><b>Cantidad</b> en unidad de compra: 3 (kg), 2 (paquetes)…</li>
+            <li><b>Costo total</b> de la factura. La vista previa muestra el costo por unidad base de esa compra («= $ 79 por g»). Si difiere más de un 50 % del costo actual, la app avisa y pide confirmar: casi siempre es una cantidad o una unidad mal elegida (1 g en vez de 1 kg).</li>
+            <li>Proveedor y nota (número de factura), si aplica.</li>
+            <li>Confirma.</li>
+          </ol>
+          <p><b>Comprueba:</b> abre el elemento. El <b>Stock actual</b> debe haber subido y la compra debe aparecer en <b>Últimos movimientos</b>.</p>
+          <ul>
+            <li><b>Sobre el costo:</b> si compras el mismo café a precios distintos, la app calcula un costo promedio. Así el costo de las recetas se mantiene realista sin que cambies nada.</li>
+            <li><b>Agua de la llave o filtrada:</b> regístrala con costo 0 y haz una compra grande de vez en cuando (por ejemplo, 20 L), para que no quede en negativo.</li>
+          </ul>
+
+          <h3 id="inv-lotes">Preparaciones: producir lote</h3>
+          <p>Una preparación se elabora aquí con otros elementos. Su stock no entra con compras, sino con <span class="btnname">Producir lote</span>. Ejemplo real: el cold brew.</p>
+          <p><b>Configurarla (una sola vez):</b></p>
+          <div class="tw"><table>
+            <tr><th>Campo</th><th>Valor del ejemplo</th><th>Qué significa</th></tr>
+            <tr><td>Tipo</td><td>Preparación (sub-receta)</td><td>Se produce aquí</td></tr>
+            <tr><td>Unidad base</td><td>mililitros (ml)</td><td>Se descuenta en ml</td></tr>
+            <tr><td>Receta del lote</td><td>Café en grano 100 g · Agua 1.000 ml</td><td>Lo que se gasta en un lote</td></tr>
+            <tr><td>Rendimiento por lote</td><td>900</td><td>ml que salen de un lote. <b>No son vasos</b></td></tr>
+            <tr><td>Stock mínimo</td><td>300</td><td>Avisa cuando quedan unos 2 vasos</td></tr>
+            <tr><td>Activo</td><td>Marcado</td><td>Si no, queda oculto</td></tr>
+          </table></div>
+          <p>En una preparación la app <b>no muestra</b> «Unidad de compra» ni «Costo de compra»: el costo sale de los ingredientes. Junto al rendimiento recuerda que son ml del lote, no vasos, y <b>avisa</b> si el rendimiento es menor que lo que usa un vaso de alguna receta (por ejemplo, si escribiste 6,6 vasos en vez de 900 ml).</p>
+          <p><b>Cada vez que se prepara:</b></p>
+          <ol>
+            <li>Abre la preparación → <span class="btnname">Producir lote</span>.</li>
+            <li>Número de lotes: 1 (o 2, o 0,5 si preparan medio lote).</li>
+            <li>Revisa el resumen: «Entra 900 ml · Se descuenta: Café 100 g, Agua 1.000 ml».</li>
+            <li><span class="btnname">Producir</span>.</li>
+          </ol>
+          <p><b>Comprueba:</b> el stock de la preparación sube 900 ml, el café baja 100 g y el costo promedio queda en unos $9 por ml (el costo del café dividido entre 900 ml).</p>
+          <div class="warn">Produce el lote cuando de verdad se prepara, no cuando se planea. Si se preparó y no se registró, las ventas dejan la preparación en negativo.</div>
+
+          <h3 id="inv-recetas">Recetas de los productos de venta</h3>
+          <p>La receta dice qué se gasta al vender <b>una unidad</b> del producto. Se abre desde <span class="btnname">Inventario y costos → Productos de venta</span> tocando la tarjeta del producto.</p>
+          <ol>
+            <li><b>Elegir ingrediente…</b>: fíjate en el tipo entre paréntesis (Materia prima, Preparación…).</li>
+            <li><b>Cantidad</b> en la unidad pequeña que aparece a la derecha (g, ml o unidad). Lo de un vaso, nunca el paquete completo. Debajo de cada línea verás su cuenta: <b>«150 ml × $ 9/ml = $ 1.350»</b>.</li>
+            <li><span class="btnname">＋ Ingrediente</span> para cada elemento adicional.</li>
+            <li><b>Nota del cambio:</b> por qué se crea o se cambia. Ejemplo: «café de 20 g a 18 g».</li>
+            <li>Revisa los recuadros (abajo) y pulsa <span class="btnname">Guardar nueva versión</span>.</li>
+          </ol>
+          <p><b>Ejemplo, Cold Brew 12 oz:</b> Cold brew (Preparación) 150 ml · Hielo 150 g · Vaso 12 oz (Insumo) 1 unidad · Tapa (Insumo) 1 unidad.</p>
+          <figure><img src="img/receta.jpg" alt="Receta del producto" /><figcaption>Receta: la cuenta de cada ingrediente, el costo, el margen y cuántas unidades alcanzan</figcaption></figure>
+          <p><b>Revisar antes de guardar:</b></p>
+          <ul>
+            <li><b>Costo de producción:</b> debe ser menor que el precio de venta. Si es mayor, la app pide confirmar: casi siempre hay una cantidad mal escrita (por ejemplo, 1.000 ml en vez de 150 ml).</li>
+            <li><b>Unidad de compra completa:</b> si una línea usa una unidad de compra completa o más por cada venta (1.000 ml de leche por vaso), la app también pide confirmar.</li>
+            <li><b>Margen:</b> en una cafetería suele estar entre 60 % y 85 %. Negativo o en rojo = revisar.</li>
+            <li><b>«Quedan X»:</b> cuántas unidades alcanzan con el stock actual y qué ingrediente limita. Si dice 0, falta registrar una compra o producir un lote.</li>
+          </ul>
+          <ul>
+            <li><b>Versiones:</b> cada vez que guardas se crea una versión nueva. Las ventas desde ese momento usan la nueva; las pasadas conservan la receta y el costo con que se vendieron. No hace falta crear otro producto para corregir una receta.</li>
+            <li><b>Quitar la receta:</b> borra todas las líneas (✕) y guarda. El producto se sigue vendiendo, pero no descuenta inventario.</li>
+            <li><b>Adiciones</b> (shot extra, cambio de leche): pueden usar cantidades negativas para restar un ingrediente. Ejemplo: «Leche de almendras» resta 200 ml de leche entera y suma 200 ml de leche de almendras.</li>
+          </ul>
+
+          <h3 id="inv-control">Mermas, ajustes, conteo físico y correcciones</h3>
+          <p>Los movimientos <b>nunca se borran</b>. Si algo se registró mal, se corrige con un movimiento contrario. Así siempre queda claro qué pasó, quién lo hizo y cuándo.</p>
+          <div class="tw"><table>
+            <tr><th>Botón</th><th>Cuándo usarlo</th><th>Ejemplo</th><th>Qué registrar</th></tr>
+            <tr><td><span class="btnname">Merma</span></td><td>Algo se pierde o se daña</td><td>Se vencieron 2 L de leche; se derramó un vaso de cold brew</td><td>Motivo: vencido, dañado, derramado, prueba/calibración, cortesía</td></tr>
+            <tr><td><span class="btnname">Ajuste</span></td><td>Corregir una cantidad puntual con razón conocida</td><td>Se registró una compra de 3 kg pero llegaron 2 kg</td><td>La razón (obligatoria)</td></tr>
+            <tr><td><span class="btnname">Conteo físico</span></td><td>Comparar lo que dice la app con lo que hay de verdad</td><td>Fin de semana: se cuentan café, leche, vasos</td><td>La app registra la diferencia</td></tr>
+            <tr><td><span class="btnname">Corregir</span> (en Últimos movimientos)</td><td>Un movimiento concreto quedó mal</td><td>Se produjeron 2 lotes en vez de 1</td><td>Crea el movimiento contrario</td></tr>
+          </table></div>
+          <div class="tip"><b>Merma o ajuste:</b> una merma es una pérdida real (sale producto y cuesta dinero). Un ajuste corrige un error de registro. Separarlas permite saber cuánto dinero se pierde de verdad.</div>
+          <p><b>Cómo hacer un conteo físico:</b></p>
+          <ol>
+            <li>Elige un momento sin ventas (antes de abrir o después de cerrar).</li>
+            <li>Cuenta o pesa cada elemento en su unidad base: gramos, mililitros, unidades.</li>
+            <li>Pulsa <span class="btnname">Conteo físico</span> e ingresa lo que contaste.</li>
+            <li>Revisa las diferencias. Una diferencia grande casi siempre tiene una causa: compra sin registrar, lote sin producir, receta con cantidad equivocada o merma sin anotar.</li>
+            <li>Anota la causa en la nota antes de confirmar.</li>
+          </ol>
+
+          <h3 id="inv-rutina">Rutina del administrador</h3>
+          <ul>
+            <li><b>Todos los días:</b> registrar las compras que llegaron; registrar cada lote preparado (cold brew, jarabes) en el momento; anotar las mermas del día; al cerrar, revisar que «Stock negativo» y «Bajo el mínimo» estén en 0 o con una explicación.</li>
+            <li><b>Cada semana:</b> conteo físico de lo más caro o más usado (café, leche, cold brew, vasos); revisar en <span class="btnname">Reportes</span> el consumo y las mermas; revisar los productos con margen en rojo o muy bajo.</li>
+            <li><b>Cada mes:</b> conteo físico completo; revisar las recetas (si cambió una porción o un precio, guardar una versión nueva con nota); revisar el valor del inventario y las pérdidas por merma en dinero; archivar los elementos que ya no se usan.</li>
+          </ul>
+
+          <h3 id="inv-errores">Errores comunes</h3>
+          <div class="tw"><table>
+            <tr><th>Síntoma</th><th>Causa</th><th>Solución</th></tr>
+            <tr><td>Cada venta descuenta un litro o un kilo completo</td><td>En la receta se escribió la unidad de compra (1.000 ml) en vez de lo de un vaso (150 ml). La app avisa al guardar</td><td>Corregir la cantidad y guardar versión nueva</td></tr>
+            <tr><td>Margen negativo o costo absurdo</td><td>Cantidad de receta equivocada, o costo de compra mal escrito (80.000 en vez de 8.000 por litro). La app muestra el costo por unidad y avisa si cambia más de un 50 %</td><td>Revisar la cantidad en la receta y el costo del elemento</td></tr>
+            <tr><td>«Quedan 0» aunque sí hay producto</td><td>Falta registrar la compra o producir el lote</td><td>Registrar compra o Producir lote</td></tr>
+            <tr><td>Preparación con costo raro</td><td>Rendimiento escrito en vasos (6,6) en vez de ml (900). La app avisa</td><td>Rendimiento por lote siempre en ml</td></tr>
+            <tr><td>El ingrediente no aparece en la lista de la receta</td><td>El elemento no existe o está archivado</td><td>Crearlo, o reactivarlo desde «Archivados»</td></tr>
+            <tr><td>Hay varios elementos o productos con nombres parecidos</td><td>Se creó uno nuevo en vez de corregir el existente. La app avisa al crear</td><td>Corregir el existente (versiones); eliminar o archivar los sobrantes</td></tr>
+            <tr><td>Stock negativo</td><td>Ventas sin compra ni lote registrado</td><td>Registrar lo que faltó; si fue error, un ajuste con motivo</td></tr>
+            <tr><td>«Equivale a» no acepta 0</td><td>Es el contenido de la unidad de compra, no el precio</td><td>Poner 1000 (L o kg), 50 (paquete)…; el 0 va en el costo</td></tr>
+          </table></div>
+          <div class="tip"><b>Regla de oro:</b> antes de guardar una receta, mira el costo y el margen. Si algo no tiene sentido, casi siempre es una cantidad mal escrita.</div>
+          <p>En <span class="btnname">Reportes</span> verás inventario y valor, stock bajo, consumo, costo y margen por producto, ganancia bruta, teórico frente a conteo, compras, mermas y ajustes, con exportación a Excel. La <span class="btnname">🧮 Calculadora</span> convierte unidades (kg↔g, L↔ml, oz↔ml, lb↔g).</p>
         </section>
 
         <section class="sec" id="ajustes">
