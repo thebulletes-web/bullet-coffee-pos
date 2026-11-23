@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.8.1</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.9.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -571,6 +571,28 @@
           <figure><img src="img/ajustes.jpg" alt="Ajustes" /><figcaption>Las 5 secciones de Ajustes</figcaption></figure>
           <h3>🏪 Negocio</h3>
           <p>Los datos del comprobante (nombre, NIT, dirección, teléfono), la licencia y el negocio al que está activado el equipo, con el link para otro equipo.</p>
+          <h3 id="modulos">🧩 Tipo de negocio y módulos</h3>
+          <figure><img src="img/ajustes_modulos.jpg" alt="Tipo de negocio y módulos" /><figcaption>El tipo de negocio propone los módulos; cada uno se enciende o apaga</figcaption></figure>
+          <p>En <b>Negocio</b>, debajo de la licencia. Bullet POS tiene un <b>núcleo</b> que siempre funciona (venta, caja, turnos, productos, reportes, respaldos, equipos y licencia) y cinco <b>módulos</b>:</p>
+          <ul>
+            <li><b>Mesas:</b> cuentas abiertas por mesa, abonos y mover la cuenta.</li>
+            <li><b>Solicitudes de cobro:</b> los equipos sin «Cobro directo» envían el cobro a la caja.</li>
+            <li><b>Propinas:</b> propina sugerida o personalizada.</li>
+            <li><b>Inventario básico:</b> elementos, compras, mermas, ajustes, conteos, archivar y eliminar.</li>
+            <li><b>Recetas y preparaciones:</b> recetas por producto, preparaciones y producir lote. Necesita Inventario básico.</li>
+          </ul>
+          <ol>
+            <li>Elige el <b>tipo de negocio</b> (Cafetería, Restaurante, Bar, Tienda de ropa / retail, Minimercado u Otro). La app marca los módulos que suele usar.</li>
+            <li>Ajusta las casillas si quieres.</li>
+            <li>Pulsa <span class="btnname">Guardar tipo de negocio y módulos</span>, confirma y escribe la contraseña administrativa.</li>
+          </ol>
+          <div class="tip"><b>Nada se borra.</b> Apagar un módulo solo lo oculta en todos los equipos (sin reiniciarlos). Sus datos se conservan y reaparecen al encenderlo. Un negocio que no había elegido nada sigue como «Cafetería», con todo encendido.</div>
+          <ul>
+            <li><b>Lo que está en curso se termina primero:</b> no se puede apagar Mesas con mesas abiertas ni Solicitudes de cobro con solicitudes pendientes. La tarjeta dice cuáles son.</li>
+            <li><b>Equipos sin «Cobro directo»:</b> si apagas Solicitudes de cobro, esos equipos no pueden cobrar. La app lo advierte al guardar; dales «Cobro directo» o deja el módulo encendido.</li>
+            <li><b>Tu plan:</b> la tarjeta muestra qué módulos incluye tu licencia. Los que no incluye aparecen como «No incluido en tu plan» y en «Disponibles para contratar». Para agregarlos, escribe a soporte.</li>
+            <li>Queda en la auditoría como «Tipo de negocio y módulos cambiados».</li>
+          </ul>
           <h3>👥 Equipos y personal</h3>
           <figure><img src="img/ajustes_equipos.jpg" alt="Equipos y personal" /><figcaption>Dispositivos: de quién es cada turno y una solicitud pendiente con su código</figcaption></figure>
           <ul>
@@ -679,6 +701,8 @@
           <h2><span class="n">17</span> Preguntas frecuentes</h2>
           <details class="faq"><summary>«Este equipo aún no está autorizado»</summary><p>El equipo muestra un código de 8 letras. En el PC Main, Ajustes → Dispositivos, escribe ese código en «Agregar un dispositivo nuevo» y autorízalo. El equipo debe tener internet. Si la solicitud tiene más de 48 horas, se borra sola: vuelve a abrir la app en el equipo para pedir acceso otra vez.</p></details>
           <details class="faq"><summary>No me deja vender</summary><p>Revisa que haya caja abierta, que tengas turno (si es obligatorio) y que la licencia esté vigente. El mensaje en pantalla dice qué falta.</p></details>
+          <details class="faq"><summary>Desaparecieron las mesas, las propinas o las recetas</summary><p>El PC Main apagó ese módulo o tu plan no lo incluye. Mira Ajustes → Negocio → «Tipo de negocio y módulos». Los datos no se borraron: al encender el módulo vuelven a aparecer.</p></details>
+          <details class="faq"><summary>«Este equipo no cobra directamente y las solicitudes de cobro están apagadas»</summary><p>El equipo no tiene «Cobro directo» y el módulo Solicitudes de cobro está apagado. En el PC Main: dale «Cobro directo» en Ajustes → Equipos y personal, o enciende Solicitudes de cobro.</p></details>
           <details class="faq"><summary>Olvidé mi PIN del PC Main</summary><p>En la pantalla de bloqueo toca «Olvidé mi PIN», escribe la contraseña administrativa y crea un PIN nuevo. Si olvidaste también la contraseña, contacta a soporte.</p></details>
           <details class="faq"><summary>Olvidé la contraseña administrativa</summary><p>Contacta a soporte.</p></details>
           <details class="faq"><summary>Pedí turno y no pasa nada</summary><p>El PC Main debe aprobarlo (le aparece un aviso arriba). Ambos equipos necesitan internet.</p></details>
@@ -714,7 +738,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.8.1 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.9.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
