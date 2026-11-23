@@ -153,7 +153,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.7.9</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.8.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -405,8 +405,12 @@
             <li><b>Tipos de elemento:</b> materia prima, insumos, preparaciones (lotes) y reventa (1 a 1).</li>
             <li><b>Cada elemento tiene:</b> unidad base y unidad de compra (1 kg = 1.000 g), stock mínimo, proveedor y costo. El stock y el costo promedio se calculan solos.</li>
             <li><b>Movimientos:</b> <span class="btnname">Compra</span>, <span class="btnname">Merma</span>, <span class="btnname">Ajuste</span>, <span class="btnname">Conteo físico</span> y <span class="btnname">Producir lote</span>. No se borran: <span class="btnname">Corregir</span> crea un movimiento contrario.</li>
+            <li><b>Eliminar o archivar:</b> un elemento sin movimientos, recetas ni ventas se puede <span class="btnname">Eliminar</span>. Si ya tiene historial, se <span class="btnname">Archiva</span>: deja de aparecer, conserva su historial y se reactiva desde el filtro <span class="btnname">Archivados</span>.</li>
+            <li><b>Preparaciones:</b> no llevan unidad ni costo de compra; su costo sale de los ingredientes. El <b>rendimiento por lote</b> es lo que sale del lote (por ejemplo, ml), no los vasos: si es menor que lo que usa un vaso de alguna receta, la app avisa.</li>
+            <li><b>Avisos para no equivocarte:</b> al crear un elemento o registrar una compra verás su costo por unidad base («= $ 79 por g») y un aviso si cambia más de un 50 %. También avisa si creas un elemento o un producto con un nombre igual o muy parecido a otro.</li>
           </ul>
-          <figure><img src="img/receta.jpg" alt="Receta del producto" /><figcaption>Receta: costo, margen y cuántas unidades alcanzan</figcaption></figure>
+          <figure><img src="img/receta.jpg" alt="Receta del producto" /><figcaption>Receta: el costo de cada ingrediente, el costo total, el margen y cuántas unidades alcanzan</figcaption></figure>
+          <p>En la receta, debajo de cada ingrediente se ve su cuenta (por ejemplo, «150 ml × $ 9/ml = $ 1.350»). Al guardar, la app pide confirmar si un ingrediente usa una unidad de compra completa o más por cada venta (por ejemplo, 1.000 ml de leche por vaso) o si el costo supera el precio de venta.</p>
           <div class="tip">Cada cambio de receta crea una <b>versión nueva</b>: las ventas pasadas conservan su costo. Nunca se bloquea una venta por falta de stock; el stock queda en rojo y aparece un aviso. En <span class="btnname">Reportes</span> verás el consumo, las mermas, la ganancia bruta y más, con exportación a Excel. La <span class="btnname">🧮 Calculadora</span> convierte unidades.</div>
         </section>
 
@@ -559,7 +563,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.7.9 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.8.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
