@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.9.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.9.1</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -194,9 +194,10 @@
           <h3>2.2 El primer PC Main</h3>
           <ol>
             <li>Con el equipo autorizado aparece <span class="btnname">Empezar desde cero</span> (o <span class="btnname">Restaurar un respaldo</span> si vienes de otro equipo).</li>
-            <li><span class="btnname">Ajustes → Equipos y personal → Configurar este equipo como Main</span> con la contraseña inicial que te dio el proveedor.</li>
+            <li><span class="btnname">Ajustes → Equipos y personal → Configurar este equipo como Main</span> con la contraseña inicial que te dio el proveedor (es solo de tu negocio; mayúsculas y guiones no importan).</li>
             <li>Crea tu PIN con <span class="btnname">Crear mi PIN</span>.</li>
             <li>Sigue el <b>asistente</b>: datos del negocio, tu contraseña administrativa (anótala en un lugar seguro), forma de trabajo, productos y caja. ¿Te equivocaste? Vuelve a abrirlo en <span class="btnname">Ajustes → Ayuda y app → Asistente de configuración</span>: cada paso reemplaza lo anterior (no hace falta borrar nada). Cambiar la forma de trabajo pide la contraseña.</li>
+            <li>Mientras no cambies la contraseña inicial, el asistente se abre cada vez y no se puede dejar para después; las acciones protegidas (cerrar caja, anular…) piden cambiarla primero.</li>
           </ol>
           <h3>2.3 Sumar equipos</h3>
           <ol>
@@ -591,6 +592,8 @@
             <li><b>Lo que está en curso se termina primero:</b> no se puede apagar Mesas con mesas abiertas ni Solicitudes de cobro con solicitudes pendientes. La tarjeta dice cuáles son.</li>
             <li><b>Equipos sin «Cobro directo»:</b> si apagas Solicitudes de cobro, esos equipos no pueden cobrar. La app lo advierte al guardar; dales «Cobro directo» o deja el módulo encendido.</li>
             <li><b>Tu plan:</b> la tarjeta muestra qué módulos incluye tu licencia. Los que no incluye aparecen como «No incluido en tu plan» y en «Disponibles para contratar». Para agregarlos, escribe a soporte.</li>
+            <li><b>Versión de los equipos:</b> la tarjeta avisa qué equipos todavía no tienen la 2.9.0, o dice «Todos los equipos tienen la 2.9.0 o superior». Sirve para saber cuándo se puede usar un plan con módulos limitados.</li>
+            <li><b>Textos según tu negocio:</b> sin Mesas, la app dice «vendedor» en lugar de «mesero» (pantallas, impresiones y Excel); sin Propinas, se ocultan las propinas en cero. Lo que tiene valor, como una propina de antes, siempre se muestra.</li>
             <li>Queda en la auditoría como «Tipo de negocio y módulos cambiados».</li>
           </ul>
           <h3>👥 Equipos y personal</h3>
@@ -738,7 +741,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.9.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.9.1 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
