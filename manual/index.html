@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.8.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.8.1</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -458,7 +458,7 @@
             <li><b>Activo</b> marcado → <span class="btnname">Guardar elemento</span>.</li>
           </ol>
           <p>Un elemento nuevo empieza con 0 de stock. Para que tenga existencias hay que registrar una compra.</p>
-          <div class="tip"><b>Eliminar o archivar:</b> si un elemento no tiene movimientos, ni está en recetas ni en ventas, su ventana muestra <span class="btnname">Eliminar</span>. Si ya tiene historial, muestra <span class="btnname">Archivar</span>: desaparece de las listas sin perder su historial, y se reactiva desde el filtro <span class="btnname">Archivados</span>.</div>
+          <div class="tip"><b>Eliminar o archivar:</b> si un elemento no tiene movimientos, ni está en recetas ni en ventas, su ventana muestra <span class="btnname">Eliminar</span>. Si ya tiene historial, muestra <span class="btnname">Archivar</span>: desaparece de las listas sin perder su historial, y se reactiva desde el filtro <span class="btnname">Archivados</span>. Un elemento archivado que ya no vas a usar se puede <span class="btnname">Eliminar definitivamente</span> (o todos a la vez con <span class="btnname">Eliminar todos los archivados</span>): pide la contraseña, avisa si todavía tiene stock y no deja eliminarlo mientras una receta vigente lo use. Sus movimientos y las ventas pasadas se conservan.</div>
 
           <h3 id="inv-compras">Registrar compras</h3>
           <p>Cada vez que llega mercancía, regístrala el mismo día. Si no, el stock queda bajo y las ventas lo dejan en negativo.</p>
@@ -557,7 +557,7 @@
             <tr><td>«Quedan 0» aunque sí hay producto</td><td>Falta registrar la compra o producir el lote</td><td>Registrar compra o Producir lote</td></tr>
             <tr><td>Preparación con costo raro</td><td>Rendimiento escrito en vasos (6,6) en vez de ml (900). La app avisa</td><td>Rendimiento por lote siempre en ml</td></tr>
             <tr><td>El ingrediente no aparece en la lista de la receta</td><td>El elemento no existe o está archivado</td><td>Crearlo, o reactivarlo desde «Archivados»</td></tr>
-            <tr><td>Hay varios elementos o productos con nombres parecidos</td><td>Se creó uno nuevo en vez de corregir el existente. La app avisa al crear</td><td>Corregir el existente (versiones); eliminar o archivar los sobrantes</td></tr>
+            <tr><td>Hay varios elementos o productos con nombres parecidos</td><td>Se creó uno nuevo en vez de corregir el existente. La app avisa al crear</td><td>Corregir el existente (versiones); archivar los sobrantes y eliminarlos definitivamente desde «Archivados»</td></tr>
             <tr><td>Stock negativo</td><td>Ventas sin compra ni lote registrado</td><td>Registrar lo que faltó; si fue error, un ajuste con motivo</td></tr>
             <tr><td>«Equivale a» no acepta 0</td><td>Es el contenido de la unidad de compra, no el precio</td><td>Poner 1000 (L o kg), 50 (paquete)…; el 0 va en el costo</td></tr>
           </table></div>
@@ -714,7 +714,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.8.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.8.1 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
