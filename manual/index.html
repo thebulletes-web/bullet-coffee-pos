@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.9.5</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.10.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -393,16 +393,29 @@
           </div>
           <ul>
             <li><b>Nuevo producto:</b> nombre, categoría, precio y, opcionalmente, el código de barras (único).</li>
-            <li><b>Importar Excel:</b> columnas Producto, Categoria, Precio_COP y Codigo_barras (opcional). Reemplaza el catálogo.</li>
+            <li><b>Control de inventario</b> (desde la 2.10.0, con Inventario activo): en la misma ficha eliges cómo descuenta cada producto.
+              <ul>
+                <li><b>Por unidad:</b> el producto tiene su propio stock. Pones el costo, el stock mínimo, el proveedor, si se compra por caja y el <b>stock inicial</b> (queda como «Inventario inicial»); la ficha muestra el <b>margen</b> (precio − costo, en pesos y %). Después, el stock y el costo promedio se ven en la ficha y cambian solo con compras, mermas, ajustes o conteos.</li>
+                <li><b>Por receta:</b> descuenta los ingredientes de su receta (solo con Recetas y preparaciones).</li>
+                <li><b>Sin control:</b> se vende sin descontar inventario. Si el producto tenía receta, la app lo advierte.</li>
+              </ul>
+              En Tienda y Minimercado los productos nuevos vienen «Por unidad»; en los demás tipos, «Sin control». Los productos que ya existían conservan su comportamiento. Una cafetería puede mezclar: el café «Por receta» y la botella de agua «Por unidad».
+            </li>
+            <li><b>Importar (Agregar productos, recomendado):</b> descarga la plantilla (Nombre, Categoría, Precio, Costo, Stock inicial, Stock mínimo, Código, Proveedor), llénala y elige el archivo. La <b>vista previa</b> muestra los que se agregan, los duplicados (por nombre o código) y las filas con error; no borra ni reemplaza nada y crea el inventario inicial.</li>
+            <li><b>Reemplazar todo el catálogo (avanzado):</b> la importación de siempre (columnas Producto, Categoria, Precio_COP y Codigo_barras). Antes descarga un respaldo, avisa cuántas recetas y productos por unidad pierden su relación y pide escribir <b>REEMPLAZAR</b>.</li>
             <li>Cada tamaño es un producto aparte; las adiciones van en una categoría «Adiciones».</li>
             <li>Los cambios llegan solos a todos los equipos.</li>
           </ul>
+          <div class="two">
+            <figure><img src="img/ficha_producto.jpg" alt="Ficha de producto por unidad" /><figcaption>Producto «Por unidad»: costo, stock inicial, mínimo, proveedor y margen</figcaption></figure>
+            <figure><img src="img/importar.jpg" alt="Agregar productos desde Excel" /><figcaption>Agregar productos: vista previa con duplicados y errores</figcaption></figure>
+          </div>
         </section>
 
         <section class="sec" id="inventario">
           <h2><span class="n">13</span> Inventario y costos: guía del administrador</h2>
           <p class="lead">Opcional y solo en el PC Main. Cada venta descuenta su receta y te dice cuánto ganas de verdad.</p>
-          <div class="note" style="background:#eef3ef;border-left-color:#28584d"><b>En esta sección:</b> <a href="#inv-idea">La idea clave</a> · <a href="#inv-tipos">Los cinco tipos</a> · <a href="#inv-unidades">Las dos unidades</a> · <a href="#inv-crear">Crear un elemento</a> · <a href="#inv-compras">Registrar compras</a> · <a href="#inv-lotes">Preparaciones y lotes</a> · <a href="#inv-recetas">Recetas</a> · <a href="#inv-control">Mermas, ajustes y conteos</a> · <a href="#inv-rutina">Rutina</a> · <a href="#inv-errores">Errores comunes</a></div>
+          <div class="note" style="background:#eef3ef;border-left-color:#28584d"><b>En esta sección:</b> <a href="#inv-idea">La idea clave</a> · <a href="#inv-tipos">Los cinco tipos</a> · <a href="#inv-unidades">Las dos unidades</a> · <a href="#inv-crear">Crear un elemento</a> · <a href="#inv-compras">Registrar compras</a> · <a href="#inv-lotes">Preparaciones y lotes</a> · <a href="#inv-recetas">Recetas</a> · <a href="#inv-control">Mermas, ajustes y conteos</a> · <a href="#inv-rutina">Rutina</a> · <a href="#inv-errores">Errores comunes</a> · <a href="#inv-producto">Por producto (tiendas)</a></div>
           <figure><img src="img/inventario.jpg" alt="Inventario" /><figcaption>Elementos por tipo, stock, costo, alertas y el filtro «Archivados»</figcaption></figure>
 
           <h3 id="inv-idea">La idea clave</h3>
@@ -563,17 +576,31 @@
             <tr><td>«Equivale a» no acepta 0</td><td>Es el contenido de la unidad de compra, no el precio</td><td>Poner 1000 (L o kg), 50 (paquete)…; el 0 va en el costo</td></tr>
           </table></div>
           <div class="tip"><b>Regla de oro:</b> antes de guardar una receta, mira el costo y el margen. Si algo no tiene sentido, casi siempre es una cantidad mal escrita.</div>
-          <p>En <span class="btnname">Reportes</span> verás inventario y valor, stock bajo, consumo, costo y margen por producto, ganancia bruta, teórico frente a conteo, compras, mermas y ajustes, con exportación a Excel. La <span class="btnname">🧮 Calculadora</span> convierte unidades (kg↔g, L↔ml, oz↔ml, lb↔g).</p>
+          <p>En <span class="btnname">Reportes</span> verás inventario y valor, stock bajo, consumo, costo y margen por producto, ganancia bruta, teórico frente a conteo, compras, mermas, ajustes y devoluciones al proveedor, con exportación a Excel (para tiendas, también más vendidos, sin movimiento, ganancia por categoría y compras por proveedor). La <span class="btnname">🧮 Calculadora</span> convierte unidades (kg↔g, L↔ml, oz↔ml, lb↔g).</p>
           <h3 id="inv-producto">Inventario por producto (tiendas y minimercados)</h3>
-          <p>En una tienda de ropa o un minimercado no hay recetas: <b>cada producto es su propio inventario</b>, en unidades. Hoy se lleva así:</p>
+          <p>En una tienda de ropa o un minimercado no hay recetas: <b>cada producto es su propio inventario</b>, en unidades. Desde la 2.10.0 todo se maneja desde la ficha del producto, sin crear elementos aparte.</p>
           <ol>
-            <li>Crea el producto en <span class="btnname">Productos</span> (nombre, categoría, precio y código de barras si tiene).</li>
-            <li>En <span class="btnname">Inventario</span> pulsa <span class="btnname">＋ Elemento</span>, elige el tipo <b>Producto de reventa</b> y el producto del catálogo que representa. Su unidad es la <b>unidad</b>.</li>
-            <li>Registra lo que tienes con <span class="btnname">Compra</span> (cantidad y costo). La app calcula el costo promedio.</li>
-            <li>Cada venta descuenta las unidades vendidas; anular la venta las devuelve. Una venta nunca se bloquea por falta de stock: el producto queda en rojo.</li>
-            <li>Para corregir usa <span class="btnname">Merma</span>, <span class="btnname">Ajuste</span> o <span class="btnname">Conteo físico</span>. El stock no se escribe a mano.</li>
+            <li><b>Crear el producto:</b> en <span class="btnname">Productos</span>, con «Control de inventario: Por unidad» (en Tienda y Minimercado viene así). Pon costo, stock inicial, mínimo y proveedor. Si tienes muchos, usa <span class="btnname">Importar → Agregar productos</span> con la plantilla de Excel (sección 12).</li>
+            <li><b>Ver el inventario:</b> en <span class="btnname">Inventario</span> la pantalla dice «Tus productos y sus unidades en stock». Arriba ves el valor a costo, el valor a precio de venta, los agotados, los que están bajo el mínimo y los negativos. Los problemas salen primero: negativos, agotados y bajo el mínimo.</li>
+            <li><b>Filtrar y buscar:</b> Todos los productos, Agotados, Bajo el mínimo, Negativos y Archivados. El buscador encuentra por nombre o por código de barras.</li>
+            <li><b>Tarjetas o lista:</b> la vista de <b>Lista</b> muestra nombre, categoría, código, stock, mínimo, costo, precio, valor, margen y estado; toca un encabezado para ordenar (y otra vez para invertir). El equipo recuerda la vista elegida.</li>
+            <li><b>Vender:</b> cada venta descuenta las unidades; anularla las devuelve. La venta nunca se bloquea por falta de stock: el producto queda en negativo y aparece primero. Renombrar un producto no rompe el descuento.</li>
           </ol>
-          <div class="tip">Próximamente (2.10.0): el stock, el costo y el mínimo se manejarán desde la misma ficha del producto, con compras de varias líneas, carga desde Excel y reportes para tiendas.</div>
+          <div class="two">
+            <figure><img src="img/inventario_tienda.jpg" alt="Inventario de una tienda en tarjetas" /><figcaption>Tienda: indicadores arriba y los problemas primero</figcaption></figure>
+            <figure><img src="img/inventario_lista.jpg" alt="Inventario en vista de lista" /><figcaption>Vista de lista, ordenable por cualquier columna</figcaption></figure>
+          </div>
+          <p><b>Compra de varios productos (una factura):</b></p>
+          <ol>
+            <li>Pulsa <span class="btnname">Compra de varios</span> en Inventario.</li>
+            <li>Escribe el proveedor y el número de factura.</li>
+            <li>En cada línea, el producto (por nombre o código de barras), la cantidad y el costo por unidad. <span class="btnname">＋ Agregar línea</span> agrega otra. Si el producto se compra por caja («Se compra por caja de N»), la app convierte las cajas a unidades.</li>
+            <li>Revisa el total y confirma. Cada línea sube el stock y actualiza el costo promedio.</li>
+          </ol>
+          <figure><img src="img/compra_varios.jpg" alt="Compra de varias líneas" /><figcaption>Una factura con varios productos</figcaption></figure>
+          <p><b>Devolución al proveedor:</b> el botón <span class="btnname">Devolución al proveedor</span> funciona igual que la compra, pero <b>resta</b> stock. Úsala cuando devuelves mercancía dañada o que no pediste. No es una merma: la plata vuelve.</p>
+          <p><b>Informes para tiendas</b> (en <span class="btnname">Reportes</span>, exportables a Excel): más vendidos por producto, sin movimiento en el periodo (lo que no rota), ganancia por categoría, compras por proveedor y devoluciones al proveedor, además de los de siempre.</p>
+          <div class="tip"><b>Cafetería con productos por unidad:</b> una cafetería también puede tener productos «Por unidad» (agua, gaseosas, galletas empacadas). Tienen su propio filtro, «Productos por unidad»; los productos sin receta se agrupan en una sección «Productos sin receta (N)». Para bares, la unidad de compra puede ser la <b>onza</b> (29,57 ml) o la <b>botella</b>.</div>
         </section>
 
         <section class="sec" id="ajustes">
@@ -760,7 +787,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.9.5 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.10.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
