@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.10.0</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.10.1</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -231,7 +231,7 @@
           <h3>Indicadores de arriba</h3>
           <ul>
             <li><b>Sincronización:</b> el estado de la conexión. Tócalo para ver el detalle de lo pendiente y de los errores.</li>
-            <li><b>Último respaldo:</b> hace cuánto se hizo el último respaldo; se pone en rojo si hace mucho.</li>
+            <li><b>Último respaldo:</b> hace cuánto se hizo el último respaldo; se pone en rojo si hace mucho. Desde la 2.10.1, el PC Main además lo recuerda con un aviso (Ajustes → Ayuda y app → Espacio y respaldo).</li>
             <li><b>Turno:</b> quién tiene el turno abierto y desde cuándo. Tócalo para iniciarlo o cerrarlo.</li>
             <li><b>Avisos del PC Main:</b> solicitudes de cobro, turnos por aprobar y ventas por revisar.</li>
           </ul>
@@ -366,11 +366,24 @@
           </div>
           <ol>
             <li><span class="btnname">Cerrar caja</span> (con contraseña).</li>
-            <li>Cuenta el efectivo; puedes hacerlo por denominaciones.</li>
-            <li>Si aplica, registra el datáfono y las transferencias verificadas.</li>
+            <li><b>Si algún equipo no ha terminado de enviar</b>, aparece <b>Esperar sincronización</b> con el estado de cada equipo y cuántas ventas le faltan por enviar. Se revisa sola y pasa al cierre en cuanto todo llega. Si no puedes esperar, <span class="btnname">Cerrar con advertencias</span>: las ventas que lleguen después quedan como <b>ventas tardías</b> para conciliar, y el cierre queda marcado.</li>
+            <li><b>Cuenta todo el efectivo del cajón, incluida la base.</b> Puedes contar por denominaciones. Si el valor que escribes se parece al efectivo <i>sin</i> la base, la app pregunta <b>«¿Olvidaste sumar la base?»</b>: <span class="btnname">Sumar la base</span> la agrega; <span class="btnname">Está bien así</span> deja el valor (queda registrado).</li>
+            <li><b>Datáfono y transferencias</b> vienen <b>llenos con lo registrado en las ventas</b>. Compáralos con el cierre del datáfono y con tus cuentas, y corrígelos si no coinciden: la app muestra la diferencia.</li>
             <li>Revisa esperado, contado y diferencia; si es grande, escribe una observación.</li>
             <li><span class="btnname">Imprimir cierre</span>: incluye base, ventas por medio de pago, propinas, cada movimiento de caja, la diferencia y la firma.</li>
           </ol>
+          <div class="two">
+            <figure><img src="img/cierre_base.jpg" alt="¿Olvidaste sumar la base?" /><figcaption>«¿Olvidaste sumar la base?» y datáfono y transferencias prellenados</figcaption></figure>
+            <figure><img src="img/esperar_sync.jpg" alt="Esperar sincronización" /><figcaption>Esperar sincronización: el estado de cada equipo antes de cerrar</figcaption></figure>
+          </div>
+          <h3>Cierre rápido y recordatorio (opcionales)</h3>
+          <p>En <span class="btnname">Caja → Configuración de caja</span>, el administrador (con contraseña) puede:</p>
+          <ul>
+            <li><b>Permitir el «Cierre rápido»:</b> al cerrar aparece <span class="btnname">El efectivo coincide</span>, que cierra con el efectivo esperado sin contarlo. Pide confirmación y queda en la auditoría, en el historial de cajas y en el reporte Z como <b>«declarado sin conteo»</b>. Viene apagado: úsalo solo si de verdad confías en el conteo de otra persona.</li>
+            <li><b>Recordar cerrar la caja</b> a una hora: en los PC Main aparece un aviso arriba («recuerda cerrar la caja») mientras la caja siga abierta, con <span class="btnname">Cerrar caja</span>, <span class="btnname">En 30 min</span> y <span class="btnname">Hoy no</span>.</li>
+          </ul>
+          <figure><img src="img/config_caja.jpg" alt="Configuración de caja" /><figcaption>Cierre rápido y recordatorio de cierre</figcaption></figure>
+          <p>Nada de esto cambia los cálculos: el esperado y las diferencias se calculan igual que siempre, y los cierres anteriores se ven como antes.</p>
           <div class="tip"><b>Cuadre diario:</b> resumen del día con ventas, anuladas, ingresos y salidas, y cierres. Se imprime y se exporta a Excel. Si una venta hecha sin internet llega después del cierre, aparece como <b>venta tardía</b> para <span class="btnname">Registrar conciliación</span>.</div>
         </section>
 
@@ -680,6 +693,16 @@
               <li>Instalar como app, y el estado de la sincronización con <span class="btnname">Reparar sincronización</span>.</li>
             </ul>
           </div>
+          <h3>💾 Espacio y respaldo de este equipo</h3>
+          <ul>
+            <li><b>Uso y disponible:</b> cuánto espacio usa la app en este equipo, con una barra. Al <b>70 %</b> aparece un aviso naranja arriba y al <b>90 %</b> uno rojo, con <span class="btnname">Descargar respaldo</span>. Si sale, descarga el respaldo y archiva los meses viejos (Historial → Archivar mes).</li>
+            <li><b>Protegido contra borrado automático:</b> si dice «no», pulsa <span class="btnname">Proteger los datos de este equipo</span>. Si el navegador no lo permite, instala la app («Instalar como app») e inténtalo de nuevo.</li>
+            <li><b>Recordatorio de respaldo</b> (PC Main): si pasan más días de los elegidos (1, 3, 7 o 14; viene en 7) sin descargar un respaldo en este equipo, aparece un aviso arriba con <span class="btnname">Descargar respaldo</span> o <span class="btnname">Mañana</span>. «Nunca» lo apaga.</li>
+          </ul>
+          <div class="two">
+            <figure><img src="img/espacio_equipo.jpg" alt="Espacio y respaldo de este equipo" /><figcaption>Uso, protección y recordatorio de respaldo</figcaption></figure>
+            <figure><img src="img/avisos_almacenamiento.jpg" alt="Avisos arriba" /><figcaption>Avisos de espacio (70 %) y de respaldo</figcaption></figure>
+          </div>
           <h3>⚠️ Opciones avanzadas y zona de riesgo</h3>
           <ul>
             <li><b>Correo con Gmail</b> (opcional).</li>
@@ -787,7 +810,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.10.0 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.10.1 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
