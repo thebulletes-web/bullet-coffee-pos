@@ -154,7 +154,7 @@
             <div>
               <h1>Manual de usuario de Bullet POS</h1>
               <p>Todo lo que necesitas para vender, atender mesas, cuadrar la caja y administrar tu negocio. Usa el menú o el buscador de arriba, y toca cualquier imagen para verla en grande.</p>
-              <div class="chips"><span class="chip">Versión 2.10.1</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
+              <div class="chips"><span class="chip">Versión 2.10.2</span><span class="chip">PC y celular</span><span class="chip">Funciona sin internet</span></div>
             </div>
             <img src="img/venta.jpg" alt="Pantalla de venta de Bullet POS" />
           </div>
@@ -593,7 +593,7 @@
           <h3 id="inv-producto">Inventario por producto (tiendas y minimercados)</h3>
           <p>En una tienda de ropa o un minimercado no hay recetas: <b>cada producto es su propio inventario</b>, en unidades. Desde la 2.10.0 todo se maneja desde la ficha del producto, sin crear elementos aparte.</p>
           <ol>
-            <li><b>Crear el producto:</b> en <span class="btnname">Productos</span>, con «Control de inventario: Por unidad» (en Tienda y Minimercado viene así). Pon costo, stock inicial, mínimo y proveedor. Si tienes muchos, usa <span class="btnname">Importar → Agregar productos</span> con la plantilla de Excel (sección 12).</li>
+            <li><b>Crear el producto:</b> en <span class="btnname">Productos</span> (o con <span class="btnname">＋ Producto</span> desde Inventario), con «Control de inventario: Por unidad» (en Tienda y Minimercado viene así). Pon costo, stock inicial, mínimo y proveedor. Si tienes muchos, usa <span class="btnname">Importar → Agregar productos</span> con la plantilla de Excel (sección 12).</li>
             <li><b>Ver el inventario:</b> en <span class="btnname">Inventario</span> la pantalla dice «Tus productos y sus unidades en stock». Arriba ves el valor a costo, el valor a precio de venta, los agotados, los que están bajo el mínimo y los negativos. Los problemas salen primero: negativos, agotados y bajo el mínimo.</li>
             <li><b>Filtrar y buscar:</b> Todos los productos, Agotados, Bajo el mínimo, Negativos y Archivados. El buscador encuentra por nombre o por código de barras.</li>
             <li><b>Tarjetas o lista:</b> la vista de <b>Lista</b> muestra nombre, categoría, código, stock, mínimo, costo, precio, valor, margen y estado; toca un encabezado para ordenar (y otra vez para invertir). El equipo recuerda la vista elegida.</li>
@@ -602,6 +602,11 @@
           <div class="two">
             <figure><img src="img/inventario_tienda.jpg" alt="Inventario de una tienda en tarjetas" /><figcaption>Tienda: indicadores arriba y los problemas primero</figcaption></figure>
             <figure><img src="img/inventario_lista.jpg" alt="Inventario en vista de lista" /><figcaption>Vista de lista, ordenable por cualquier columna</figcaption></figure>
+          </div>
+          <p><b>Casillas por categoría (2.10.2):</b> además de las casillas de estado, el negocio puede mostrar sus <b>categorías</b> como casillas (por ejemplo «Camisetas», «Pantalones», «Lácteos» o «Cervezas»). En <span class="btnname">⚙ Personalizar casillas</span> (PC Main con permiso «Inventario») marca cuáles aparecen, ordénalas con ▲ ▼ y elige su color. Al guardar pide la contraseña, queda en la auditoría y llega a todos los equipos. Las casillas se usan de una en una, como las de estado. Una categoría que ya nadie usa no aparece aunque siga marcada, y al reconfigurar el negocio desde cero se vuelve a empezar sin casillas.</p>
+          <div class="two">
+            <figure><img src="img/casillas_config.jpg" alt="Personalizar casillas" /><figcaption>Elegir categorías, orden y color</figcaption></figure>
+            <figure><img src="img/inventario_casillas.jpg" alt="Casillas por categoría" /><figcaption>La casilla «Camisetas» filtra el inventario</figcaption></figure>
           </div>
           <p><b>Compra de varios productos (una factura):</b></p>
           <ol>
@@ -613,7 +618,7 @@
           <figure><img src="img/compra_varios.jpg" alt="Compra de varias líneas" /><figcaption>Una factura con varios productos</figcaption></figure>
           <p><b>Devolución al proveedor:</b> el botón <span class="btnname">Devolución al proveedor</span> funciona igual que la compra, pero <b>resta</b> stock. Úsala cuando devuelves mercancía dañada o que no pediste. No es una merma: la plata vuelve.</p>
           <p><b>Informes para tiendas</b> (en <span class="btnname">Reportes</span>, exportables a Excel): más vendidos por producto, sin movimiento en el periodo (lo que no rota), ganancia por categoría, compras por proveedor y devoluciones al proveedor, además de los de siempre.</p>
-          <div class="tip"><b>Cafetería con productos por unidad:</b> una cafetería también puede tener productos «Por unidad» (agua, gaseosas, galletas empacadas). Tienen su propio filtro, «Productos por unidad»; los productos sin receta se agrupan en una sección «Productos sin receta (N)». Para bares, la unidad de compra puede ser la <b>onza</b> (29,57 ml) o la <b>botella</b>.</div>
+          <div class="tip"><b>Cafetería con productos por unidad:</b> una cafetería también puede tener productos «Por unidad» (agua, gaseosas, galletas empacadas). Tienen su propio filtro, «Productos por unidad»; los productos sin receta se agrupan en una sección «Productos sin receta (N)». Las casillas por categoría también funcionan aquí: muestran los elementos y los productos de venta de esa categoría. Para bares, la unidad de compra puede ser la <b>onza</b> (29,57 ml) o la <b>botella</b>.</div>
         </section>
 
         <section class="sec" id="ajustes">
@@ -810,7 +815,7 @@
             <tr><td><b>Auditoría</b></td><td>Registro de lo que se hizo, quién y cuándo. No se puede borrar.</td></tr>
           </table></div>
         </section>
-        <footer>Bullet POS · Manual de usuario · versión 2.10.1 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
+        <footer>Bullet POS · Manual de usuario · versión 2.10.2 · © 2025-2026 thebulletes-web. Todos los derechos reservados.</footer>
       </main>
     </div>
     <div id="lb" onclick="closeLb()"><img alt="" /><p></p></div>
