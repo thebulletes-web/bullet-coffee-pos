@@ -8,7 +8,7 @@
   "display": "standalone",
   "orientation": "any",
   "background_color": "#f5f3ed",
-  "theme_color": "#173c35",
+  "theme_color": "#b84a0b",
   "lang": "es",
   "launch_handler": { "client_mode": ["focus-existing", "auto"] },
   "related_applications": [
